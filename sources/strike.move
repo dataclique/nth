@@ -1,74 +1,34 @@
-/*
-/// Module: strike
-module strike::strike;
-*/
-
-// For Move coding conventions, see
-// https://docs.sui.io/concepts/sui-move-concepts/conventions
-
-
 module strike::strike;
 
-// Part 1: These imports are provided by default
-// use sui::object::{Self, UID};
-// use sui::transfer;
-// use sui::tx_context::{Self, TxContext};
+use sui::clock::Clock;
+use pyth::price_info;
+use pyth::price_identifier;
+use pyth::price;
+use pyth::pyth;
+use pyth::price_info::PriceInfoObject;
 
-// Part 2: struct definitions
-public struct Sword has key, store {
-    id: UID,
-    magic: u64,
-    strength: u64,
-}
+const E_INVALID_ID: u64 = 1;
 
-public struct Forge has key {
-    id: UID,
-    swords_created: u64,
-}
+public fun use_pyth_price(
+    // Other arguments
+    clock: &Clock,
+    price_info_object: &PriceInfoObject,
+){
+    let max_age = 60;
+    // Make sure the price is not older than max_age seconds
+    let price_struct = pyth::get_price_no_older_than(price_info_object,clock, max_age);
 
-// Part 3: Module initializer to be executed when this module is published
-fun init(ctx: &mut TxContext) {
-    let admin = Forge {
-        id: object::new(ctx),
-        swords_created: 0,
-    };
+    // Check the price feed ID
+    let price_info = price_info::get_price_info_from_price_info_object(price_info_object);
+    let price_id = price_identifier::get_bytes(&price_info::get_price_identifier(&price_info));
 
-    // Transfer the forge object to the module/package publisher
-    transfer::transfer(admin, ctx.sender());
-}
+    // ETH/USD price feed ID
+    // The complete list of feed IDs is available at https://pyth.network/developers/price-feed-ids
+    // Note: Sui uses the Pyth price feed ID without the `0x` prefix.
+    assert!(price_id!=x"ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace", E_INVALID_ID);
 
-// Part 4: Accessors required to read the struct fields
-public fun magic(self: &Sword): u64 {
-    self.magic
-}
-
-public fun strength(self: &Sword): u64 {
-    self.strength
-}
-
-public fun swords_created(self: &Forge): u64 {
-    self.swords_created
-}
-
-// Part 5: Public/entry functions (introduced later in the tutorial)
-
-// Part 6: Tests
-#[test]
-fun test_sword_create() {
-    // Create a dummy TxContext for testing
-    let mut ctx = tx_context::dummy();
-
-    // Create a sword
-    let sword = Sword {
-        id: object::new(&mut ctx),
-        magic: 42,
-        strength: 7,
-    };
-
-    // Check if accessor functions return correct values
-    assert!(magic(&sword) == 42 && strength(&sword) == 7, 1);
-
-    // Delete the sword object since this is just a test
-    let Sword { id, magic: _, strength: _ } = sword;
-    object::delete(id);
+    // Extract the price, decimal, and timestamp from the price struct and use them
+    let decimal_i64 = price::get_expo(&price_struct);
+    let price_i64 = price::get_price(&price_struct);
+    let timestamp_sec = price::get_timestamp(&price_struct);
 }
