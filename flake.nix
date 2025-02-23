@@ -44,9 +44,9 @@
           };
 
         hooks = {
-          # Nix
           nil.enable = true;
           nixfmt-classic.enable = true;
+          eslint.enable = true;
         };
 
         env = { };
@@ -59,7 +59,14 @@
             # https://devenv.sh/reference/options/
             packages = [ suiPkg ];
 
-            languages = { nix.enable = true; };
+            languages = {
+              nix.enable = true;
+              javascript = {
+                enable = true;
+                pnpm.enable = true;
+                pnpm.install.enable = true;
+              };
+            };
 
             inherit env;
             git-hooks = { inherit hooks; };
