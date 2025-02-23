@@ -1,18 +1,15 @@
-/*
 #[test_only]
 module strike::strike_tests;
-// uncomment this line to import the module
-// use strike::strike;
 
-const ENotImplemented: u64 = 0;
+use strike::strike;
+
+use std::string::utf8;
 
 #[test]
-fun test_strike() {
-    // pass
+fun test_hello_world() {
+    let actual = strike::hello_world();
+    let expected = utf8(b"Hello World!");
+    std::debug::print(&actual);
+    std::debug::print(&expected);
+    assert!(actual == expected, 0);
 }
-
-#[test, expected_failure(abort_code = ::strike::strike_tests::ENotImplemented)]
-fun test_strike_fail() {
-    abort ENotImplemented
-}
-*/
