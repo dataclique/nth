@@ -30,7 +30,7 @@
             } else {
               url =
                 "${baseUrl}/testnet-${version}/sui-testnet-${version}-ubuntu-x86_64.tgz";
-              hash = "";
+              hash = "sha256-EeYb0AUMmhGdfDeLO6ufBl0HwMUxFgrQuJt2qbDoKPM=";
               stripRoot = false;
             };
 
