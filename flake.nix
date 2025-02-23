@@ -21,16 +21,16 @@
         suiPkg = with pkgs;
           let
             baseUrl = "https://github.com/MystenLabs/sui/releases/download";
-            version = "v1.41.0";
+            version = "v1.43.1";
             zipUrl = if stdenv.isDarwin then {
               url =
                 "${baseUrl}/testnet-${version}/sui-testnet-${version}-macos-x86_64.tgz";
-              hash = "sha256-kW+myS5V79PDgH+ZD/BJ5C+yD5XcrKrfs4MjOQv49cA=";
+              hash = "sha256-MIZO/ydaIh3q1KTbwcHgyudGgMLjnclH7X4Bqwy5LuU=";
               stripRoot = false;
             } else {
               url =
                 "${baseUrl}/testnet-${version}/sui-testnet-${version}-ubuntu-x86_64.tgz";
-              hash = "sha256-xh0vZtlQLXIvv+HvJlZKDuuRWw67Nz9YUTqTNLwjplo=";
+              hash = "";
               stripRoot = false;
             };
 
