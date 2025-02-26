@@ -2,6 +2,34 @@ module strike::strike;
 
 use std::string::{String, utf8};
 
+
+
+public struct AdminCap has key {
+    id: UID
+}
+
+
+fun init(ctx: &mut TxContext) {
+    let id = object::new(ctx);
+    let obj = AdminCap { id };
+    transfer::transfer(obj, ctx.sender());
+}
+
+public fun transfer_obj(admin_cap: AdminCap, recipient: address) {
+    transfer::transfer(admin_cap, recipient);
+}
+
+public struct Gift has key {
+    id: UID,
+    msg: String,
+}
+
+public fun gift(_: &AdminCap, msg: String, recipient: address, ctx: &mut TxContext) {
+    let gift = Gift { id: object::new(ctx), msg };
+    transfer::transfer(gift, recipient);
+}
+
+
 public fun hello_world(): String {
     utf8(b"Hello World!")
 }
