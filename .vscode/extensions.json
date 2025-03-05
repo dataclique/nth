@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "mysten.move",
-        "mysten.prettier-move"
+        "mysten.prettier-move",
+        "yzhang.markdown-all-in-one"
     ]
 }
