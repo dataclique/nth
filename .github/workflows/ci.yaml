@@ -13,16 +13,16 @@ jobs:
     env:
       NIXPKGS_ALLOW_UNFREE: 1
     steps:
-    - uses: actions/checkout@v4
-    - uses: DeterminateSystems/nix-installer-action@main
-    - uses: DeterminateSystems/magic-nix-cache-action@main
-    - uses: DeterminateSystems/flake-checker-action@main
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: DeterminateSystems/flake-checker-action@main
 
-    - name: Nix Flake check
-      run: nix flake check --impure --accept-flake-config --show-trace
+      - name: Nix Flake check
+        run: nix flake check --impure --accept-flake-config --show-trace
 
-    - name: Run tests
-      run: |
-        nix develop \
-          --impure --accept-flake-config --show-trace \
-          --command /bin/bash -c 'cd contracts && sui move test'
+      - name: Run tests
+        run: |
+          nix develop \
+            --impure --accept-flake-config --show-trace \
+            --command /bin/bash -c 'cd contracts && sui move test'

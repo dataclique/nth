@@ -2,15 +2,9 @@
   "nodes": {
     "cachix": {
       "inputs": {
-        "devenv": [
-          "devenv"
-        ],
-        "flake-compat": [
-          "devenv"
-        ],
-        "git-hooks": [
-          "devenv"
-        ],
+        "devenv": ["devenv"],
+        "flake-compat": ["devenv"],
+        "git-hooks": ["devenv"],
         "nixpkgs": "nixpkgs"
       },
       "locked": {
@@ -32,13 +26,9 @@
       "inputs": {
         "cachix": "cachix",
         "flake-compat": "flake-compat",
-        "git-hooks": [
-          "git-hooks"
-        ],
+        "git-hooks": ["git-hooks"],
         "nix": "nix",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
+        "nixpkgs": ["nixpkgs"]
       },
       "locked": {
         "lastModified": 1737540480,
@@ -56,9 +46,7 @@
     },
     "fenix": {
       "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ],
+        "nixpkgs": ["nixpkgs"],
         "rust-analyzer-src": "rust-analyzer-src"
       },
       "locked": {
@@ -109,11 +97,7 @@
     },
     "flake-parts": {
       "inputs": {
-        "nixpkgs-lib": [
-          "devenv",
-          "nix",
-          "nixpkgs"
-        ]
+        "nixpkgs-lib": ["devenv", "nix", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1712014858,
@@ -151,9 +135,7 @@
       "inputs": {
         "flake-compat": "flake-compat_2",
         "gitignore": "gitignore",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
+        "nixpkgs": ["nixpkgs"]
       },
       "locked": {
         "lastModified": 1737465171,
@@ -171,10 +153,7 @@
     },
     "gitignore": {
       "inputs": {
-        "nixpkgs": [
-          "git-hooks",
-          "nixpkgs"
-        ]
+        "nixpkgs": ["git-hooks", "nixpkgs"]
       },
       "locked": {
         "lastModified": 1709087332,
@@ -208,21 +187,13 @@
     },
     "nix": {
       "inputs": {
-        "flake-compat": [
-          "devenv"
-        ],
+        "flake-compat": ["devenv"],
         "flake-parts": "flake-parts",
         "libgit2": "libgit2",
         "nixpkgs": "nixpkgs_2",
-        "nixpkgs-23-11": [
-          "devenv"
-        ],
-        "nixpkgs-regression": [
-          "devenv"
-        ],
-        "pre-commit-hooks": [
-          "devenv"
-        ]
+        "nixpkgs-23-11": ["devenv"],
+        "nixpkgs-regression": ["devenv"],
+        "pre-commit-hooks": ["devenv"]
       },
       "locked": {
         "lastModified": 1727438425,

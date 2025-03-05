@@ -1,7 +1,8 @@
 {
-    "recommendations": [
-        "mysten.move",
-        "mysten.prettier-move",
-        "yzhang.markdown-all-in-one"
-    ]
+  "recommendations": [
+    "mysten.move",
+    "mysten.prettier-move",
+    "yzhang.markdown-all-in-one",
+    "esbenp.prettier-vscode"
+  ]
 }

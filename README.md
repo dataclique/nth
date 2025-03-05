@@ -23,6 +23,14 @@ git clone https://github.com/data-cartel/strike.git
 direnv allow
 ```
 
+### Running the frontend
+
+```sh
+cd frontend
+pnpm install
+pnpm run dev
+```
+
 ### Building the contracts
 
 ```sh
@@ -63,7 +71,6 @@ sui move test
 - Cega (deprecated)
   - Had exotic options, which is interesting, but i only see vault stuff in the app. i guess i gotta look into that more
 
-
 ### Existing Centralized Crypto Options Platforms
 
 - [CoinCall](https://www.coincall.com/)
@@ -76,6 +83,8 @@ sui move test
 
 - [Sui Guides](https://docs.sui.io/guides)
 - [Sui dApp Kit](https://sdk.mystenlabs.com/dapp-kit)
-- [Pyth Price Feeds](https://docs.pyth.network/price-feeds)
 - [Pyth JS Client](https://github.com/pyth-network/pyth-crosschain/tree/main/apps/hermes/client/js)
+- [Pyth Price Feeds](https://docs.pyth.network/price-feeds)
+- [Stork Price Feeds](https://docs.stork.network/resources/asset-id-registry)
+- [Supra Price Feeds](https://supra.com/data)
 - [The Move Book](https://move-book.com/index.html)

@@ -63,6 +63,7 @@
           nil.enable = true;
           nixfmt-classic.enable = true;
           eslint.enable = true;
+          prettier.enable = true;
           taplo.enable = true;
           rustfmt = {
             enable = true;
