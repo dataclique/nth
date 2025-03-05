@@ -2,6 +2,7 @@ import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit"
 import { isValidSuiObjectId } from "@mysten/sui/utils"
 import { Box, Container, Flex, Heading } from "@radix-ui/themes"
 import { useState } from "react"
+import { Counter } from "./Counter"
 import { CreateCounter } from "./CreateCounter"
 
 function App() {
@@ -38,7 +39,9 @@ function App() {
           style={{ background: "var(--gray-a2)", minHeight: 500 }}
         >
           {currentAccount ? (
-            counterId ? null : (
+            counterId ? (
+              <Counter id={counterId} />
+            ) : (
               <CreateCounter
                 onCreated={id => {
                   window.location.hash = id
