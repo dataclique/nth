@@ -1,5 +1,6 @@
 {
     "recommendations": [
-        "mysten.move"
+        "mysten.move",
+        "mysten.prettier-move"
     ]
 }
