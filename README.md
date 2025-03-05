@@ -1,5 +1,12 @@
 # Strike Finance
 
+## Project structure
+
+- `./` - The repository root directory
+  - `./contracts/` - The Move smart contracts
+  - `./frontend/` - The application frontend
+  - `./backend/` - The supporting backend for indexing and caching data
+
 ## Getting started
 
 ```sh

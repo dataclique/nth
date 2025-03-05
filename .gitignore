@@ -1,4 +1,3 @@
-build/*
 .direnv/
 .devenv/
 .pre-commit-config.yaml

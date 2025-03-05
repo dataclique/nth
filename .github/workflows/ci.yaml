@@ -25,4 +25,4 @@ jobs:
       run: |
         nix develop \
           --impure --accept-flake-config --show-trace \
-          --command /bin/bash -c 'sui move test'
+          --command /bin/bash -c 'cd contracts && sui move test'
