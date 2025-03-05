@@ -1,0 +1,10 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
+tokio = { version = "1.2", features = ["full"] }
+anyhow = "1.0"
+rocket = "0.5.1"

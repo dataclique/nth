@@ -23,8 +23,22 @@ git clone https://github.com/data-cartel/strike.git
 direnv allow
 ```
 
+### Building the contracts
+
+```sh
+cd contracts
+```
+
+Building the contracts:
+
 ```sh
 sui move build
+```
+
+Running tests:
+
+```sh
+sui move test
 ```
 
 ## Backlog
@@ -33,6 +47,7 @@ sui move build
 - [ ] Connect Pyth price feeds to the UI
 - [ ] Display the price of an underlying asset (e.g. SOL/USDC)
 - [ ] Connect SUI wallet to the UI
+- [ ] Implement a CLOB (Central Limit Order Book)
 
 ## Market Research
 
@@ -56,3 +71,11 @@ sui move build
 - [Binance](https://www.binance.com/en/futures/BTCUSDT_PERP)
 - [Bybit](https://www.bybit.com/en-US/option/BTC)
 - [Delta](https://delta.exchange/)
+
+## Dev Resources
+
+- [Sui Guides](https://docs.sui.io/guides)
+- [Sui dApp Kit](https://sdk.mystenlabs.com/dapp-kit)
+- [Pyth Price Feeds](https://docs.pyth.network/price-feeds)
+- [Pyth JS Client](https://github.com/pyth-network/pyth-crosschain/tree/main/apps/hermes/client/js)
+- [The Move Book](https://move-book.com/index.html)

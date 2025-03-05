@@ -11,12 +11,22 @@
       nixpkgs.follows = "nixpkgs";
       git-hooks.follows = "git-hooks";
     };
+
+    fenix.url = "github:nix-community/fenix";
+    fenix.inputs.nixpkgs.follows = "nixpkgs";
+
+    sui.url = "github:MystenLabs/sui";
+    sui.flake = false;
   };
 
-  outputs = { self, nixpkgs, flake-utils, git-hooks, devenv, ... }@inputs:
+  outputs =
+    { self, nixpkgs, flake-utils, git-hooks, devenv, fenix, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ fenix.overlays.default ];
+        };
 
         suiPkg = with pkgs;
           let
@@ -43,10 +53,23 @@
             '';
           };
 
+        toolchain = fenix.packages.${system}.stable;
+        # rustPlatform = pkgs.makeRustPlatform {
+        #   cargo = channel.toolchain;
+        #   rustc = channel.toolchain;
+        # };
+
         hooks = {
           nil.enable = true;
           nixfmt-classic.enable = true;
           eslint.enable = true;
+          taplo.enable = true;
+          rustfmt = {
+            enable = true;
+            packageOverrides = { inherit (toolchain) cargo rustfmt; };
+            settings.config-path = "backend/rustfmt.toml";
+            settings.manifest-path = "backend/Cargo.toml";
+          };
         };
 
         env = { };
@@ -58,13 +81,17 @@
           modules = [{
             # https://devenv.sh/reference/options/
             packages = [ suiPkg ];
+            enterShell = "ln -s ${inputs.sui} .sui-repo";
 
             languages = {
               nix.enable = true;
-              javascript = {
+              javascript.enable = true;
+              javascript.pnpm.enable = true;
+              typescript.enable = true;
+              rust = {
                 enable = true;
-                pnpm.enable = true;
-                pnpm.install.enable = true;
+                channel = "stable";
+                inherit toolchain;
               };
             };
 

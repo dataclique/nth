@@ -54,6 +54,27 @@
         "type": "github"
       }
     },
+    "fenix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-analyzer-src": "rust-analyzer-src"
+      },
+      "locked": {
+        "lastModified": 1741156584,
+        "narHash": "sha256-Xju6PhR09gR8cSS1s4FOHw4AhUUmrFDUs9Wj/9KFoGY=",
+        "owner": "nix-community",
+        "repo": "fenix",
+        "rev": "1271797d7c0537b4e5bdd4061a2954b846f2c29c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "fenix",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -269,9 +290,44 @@
     "root": {
       "inputs": {
         "devenv": "devenv",
+        "fenix": "fenix",
         "flake-utils": "flake-utils",
         "git-hooks": "git-hooks",
-        "nixpkgs": "nixpkgs_3"
+        "nixpkgs": "nixpkgs_3",
+        "sui": "sui"
+      }
+    },
+    "rust-analyzer-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1741011961,
+        "narHash": "sha256-bssSxw3Z9CUNB9+f3EHAX/2urT15e12Jy6YU8tHyWkk=",
+        "owner": "rust-lang",
+        "repo": "rust-analyzer",
+        "rev": "02862f5d52c30b476a5dca909a17aa4386d1fdc5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-lang",
+        "ref": "nightly",
+        "repo": "rust-analyzer",
+        "type": "github"
+      }
+    },
+    "sui": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1741203712,
+        "narHash": "sha256-RHCdr+zXPitzC8dmZGbKA3UyCCf5+xD2bJAJ551judk=",
+        "owner": "MystenLabs",
+        "repo": "sui",
+        "rev": "3b36106904b1020794a44add948ccf739ec9c753",
+        "type": "github"
+      },
+      "original": {
+        "owner": "MystenLabs",
+        "repo": "sui",
+        "type": "github"
       }
     },
     "systems": {
