@@ -14,3 +14,4 @@ jobs:
         with:
           shuttle-api-key: ${{ secrets.SHUTTLE_API_KEY }}
           project-id: proj_01JNPT0WTNBHZKNXR8M7H9RKFQ
+          working-directory: "backend"
