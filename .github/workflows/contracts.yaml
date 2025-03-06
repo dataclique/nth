@@ -1,4 +1,4 @@
-name: CI/CD
+name: Sui CI/CD
 
 on:
   workflow_dispatch:
