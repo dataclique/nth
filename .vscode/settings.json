@@ -1,11 +1,16 @@
 {
   "editor.formatOnSave": true,
   "typescript.format.semicolons": "remove",
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
   "prettierMove.printWidth": 80,
   "prettierMove.tabWidth": 2,
   "prettierMove.wrapComments": true,
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[nix]": {
     "editor.defaultFormatter": "jnoortheen.nix-ide"
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
   }
 }

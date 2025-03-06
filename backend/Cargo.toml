@@ -1,13 +1,11 @@
 [package]
-name = "strikefi"
+name = "backend"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-actix-web = "4.3.1"
-shuttle-actix-web = "0.52.0"
-shuttle-runtime = "0.52.0"
-serde = "1.0.148"
-shuttle-shared-db = { version = "0.52.0", features = ["postgres", "sqlx"] }
-sqlx = "0.8.2"
-tokio = "1.26.0"
+anyhow = "1.0"
+rocket = "0.5.1"
+rocket_db_pools = { version = "0.2.0", features = ["sqlx_sqlite"] }
+sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
+tokio = { version = "1.2", features = ["full"] }
