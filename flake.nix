@@ -53,12 +53,9 @@
             '';
           };
 
+        env = { };
+        src = ./.;
         toolchain = fenix.packages.${system}.stable;
-        # rustPlatform = pkgs.makeRustPlatform {
-        #   cargo = channel.toolchain;
-        #   rustc = channel.toolchain;
-        # };
-
         hooks = {
           nil.enable = true;
           nixfmt-classic.enable = true;
@@ -73,15 +70,12 @@
           };
         };
 
-        env = { };
-        src = ./.;
-
       in {
         devShells.default = devenv.lib.mkShell {
           inherit inputs pkgs;
           modules = [{
             # https://devenv.sh/reference/options/
-            packages = [ suiPkg ];
+            packages = with pkgs; [ suiPkg cargo-watch cargo-shuttle ];
             enterShell = "ln -s ${inputs.sui} .sui-repo";
 
             languages = {

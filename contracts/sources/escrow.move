@@ -131,7 +131,8 @@ fun test_successful_swap() {
         let key: lock::Key  = test_scenario::take_from_sender(&scenario);
         let locked: lock::Locked<Coin<SUI>> = test_scenario::take_from_sender(&scenario);
 
-        let alice_coin = swap<Coin<SUI>, Coin<SUI>>(escrow, key, locked, test_scenario::ctx(&mut scenario));
+        let ctx = test_scenario::ctx(&mut scenario);
+        let alice_coin = swap<Coin<SUI>, Coin<SUI>>( escrow, key, locked, ctx);
         transfer::public_transfer(alice_coin, BOBBY);
     };
     

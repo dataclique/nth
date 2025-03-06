@@ -4,5 +4,8 @@
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "prettierMove.printWidth": 80,
   "prettierMove.tabWidth": 2,
-  "prettierMove.wrapComments": true
+  "prettierMove.wrapComments": true,
+  "[nix]": {
+    "editor.defaultFormatter": "jnoortheen.nix-ide"
+  }
 }
