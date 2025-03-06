@@ -57,13 +57,10 @@ public fun unlock<T: key + store>(mut locked_asset: Locked<T>, key: Key): T {
 
 
 
-#[test_only]
-use sui::coin::Coin;
-#[test_only]
-use sui::sui::SUI;
-#[test_only]
-use sui::test_scenario;
-use sui::test_scenario::{Scenario};
+#[test_only] use sui::coin::Coin;
+#[test_only] use sui::sui::SUI;
+#[test_only] use sui::test_scenario;
+#[test_only] use sui::test_scenario::Scenario;
 
 #[test_only]
 fun test_coin(scenario: &mut Scenario): Coin<SUI> {

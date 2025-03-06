@@ -1,5 +1,8 @@
 {
   "editor.formatOnSave": true,
   "typescript.format.semicolons": "remove",
-  "editor.defaultFormatter": "esbenp.prettier-vscode"
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "prettierMove.printWidth": 80,
+  "prettierMove.tabWidth": 2,
+  "prettierMove.wrapComments": true
 }
