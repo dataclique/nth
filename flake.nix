@@ -12,21 +12,14 @@
       git-hooks.follows = "git-hooks";
     };
 
-    fenix.url = "github:nix-community/fenix";
-    fenix.inputs.nixpkgs.follows = "nixpkgs";
-
     sui.url = "github:MystenLabs/sui";
     sui.flake = false;
   };
 
-  outputs =
-    { self, nixpkgs, flake-utils, git-hooks, devenv, fenix, ... }@inputs:
+  outputs = { self, nixpkgs, flake-utils, git-hooks, devenv, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ fenix.overlays.default ];
-        };
+        pkgs = import nixpkgs { inherit system; };
 
         suiPkg = with pkgs;
           let
@@ -55,19 +48,12 @@
 
         env = { };
         src = ./.;
-        toolchain = fenix.packages.${system}.stable;
         hooks = {
           nil.enable = true;
           nixfmt-classic.enable = true;
           eslint.enable = true;
           prettier.enable = true;
           taplo.enable = true;
-          rustfmt = {
-            enable = true;
-            packageOverrides = { inherit (toolchain) cargo rustfmt; };
-            settings.config-path = "backend/rustfmt.toml";
-            settings.manifest-path = "backend/Cargo.toml";
-          };
         };
 
       in {
@@ -75,26 +61,25 @@
           inherit inputs pkgs;
           modules = [{
             # https://devenv.sh/reference/options/
-            packages = with pkgs; [ suiPkg cargo-watch cargo-shuttle ];
-            enterShell = "ln -s ${inputs.sui} .sui-repo";
+            packages = [ suiPkg ];
+            enterShell = ''
+              rm -v $(git rev-parse --show-toplevel)/.sui-repo
+              ln -s ${inputs.sui} $(git rev-parse --show-toplevel)/.sui-repo
+            '';
 
             languages = {
               nix.enable = true;
               javascript.enable = true;
               javascript.pnpm.enable = true;
               typescript.enable = true;
-              rust = {
-                enable = true;
-                channel = "stable";
-                inherit toolchain;
-              };
             };
 
             services.postgres = {
               enable = true;
               initialDatabases = [{
-                name = "strike-indexer-db";
-                schema = ./backend/schema.sql;
+                name = "indexer-db";
+                user = "dev";
+                pass = "passwd";
               }];
               # extensions = extensions: [ extensions.timescaledb ];
               # initialScript = "CREATE EXTENSION IF NOT EXISTS timescaledb;";

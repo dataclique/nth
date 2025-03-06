@@ -1,10 +1,17 @@
 {
   "editor.formatOnSave": true,
-  "typescript.format.semicolons": "remove",
   "prettierMove.printWidth": 80,
   "prettierMove.tabWidth": 2,
   "prettierMove.wrapComments": true,
-  "[typescript]": {
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/build": true,
+    "**/target": true,
+    "**/.direnv": true,
+    "**/.devenv": true,
+    "**/.sui-repo": true
+  },
+  "[json][javascript][typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[nix]": {
@@ -13,4 +20,5 @@
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
   }
+  // "rust-analyzer.check.overrideCommand": ["cargo", "clippy"]
 }

@@ -1,12 +1,27 @@
 [package]
-name = "backend"
+name = "strikefi"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-rocket = "0.5.1"
-rocket_db_pools = "0.2.0"
-sqlx = "0.8.3"
-sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
-tokio = { version = "1.2", features = ["full"] }
+rocket = "0.5.0"
+shuttle-rocket = "0.52.0"
+shuttle-runtime = "0.52.0"
+tokio = { version = "1.26.0", features = ["full"] }
+sqlx = { version = "0.8.3", features = [
+  "postgres",
+  "runtime-tokio",
+  "tls-native-tls",
+] }
+
+
+#########   ________  N O T E  ________  #########
+
+# Use this locally cause cloning the repo can take forever
+# sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
+
+# Commit this to use for deployment as internet is faster in the cloud
+sui_sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
+
+#########   ________  N O T E  ________  #########
