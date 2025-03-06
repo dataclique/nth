@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 rocket = "0.5.1"
-rocket_db_pools = { version = "0.2.0", features = ["sqlx_sqlite"] }
+rocket_db_pools = "0.2.0"
+sqlx = "0.8.3"
 sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
 tokio = { version = "1.2", features = ["full"] }

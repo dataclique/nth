@@ -90,6 +90,17 @@
               };
             };
 
+            services.postgres = {
+              enable = true;
+              initialDatabases = [{
+                name = "strike-indexer-db";
+                schema = ./backend/schema.sql;
+              }];
+              # extensions = extensions: [ extensions.timescaledb ];
+              # initialScript = "CREATE EXTENSION IF NOT EXISTS timescaledb;";
+              # settings.shared_preload_libraries = "timescaledb";
+            };
+
             inherit env;
             git-hooks = { inherit hooks; };
             difftastic.enable = true;
