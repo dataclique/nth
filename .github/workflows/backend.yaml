@@ -40,7 +40,7 @@ jobs:
         run: |
           LOCAL_LINE='sui-sdk = { path = ".sui-repo/crates/sui-sdk" }'
           REMOTE_LINE='sui_sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk"}'
-          sed -i "s|$LOCAL_LINE|$REMOTE_LINE|" backend/Cargo.toml
-          cat backend/Cargo.toml
+          sed -i "s|$LOCAL_LINE|$REMOTE_LINE|" Cargo.toml
+          cat Cargo.toml
 
           shuttle deploy --id proj_01JNPT0WTNBHZKNXR8M7H9RKFQ
