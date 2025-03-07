@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: textbook/git-checkout-submodule-action@master
+        with:
+          submodules: recursive
 
       # install with cargo-binstall
       - name: Install cargo-binstall
