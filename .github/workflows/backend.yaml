@@ -10,6 +10,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout submodules
+        uses: textbook/git-checkout-submodule-action@master
       - uses: shuttle-hq/deploy-action@v2
         with:
           shuttle-api-key: ${{ secrets.SHUTTLE_API_KEY }}
