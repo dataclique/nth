@@ -11,9 +11,6 @@
       nixpkgs.follows = "nixpkgs";
       git-hooks.follows = "git-hooks";
     };
-
-    sui.url = "github:MystenLabs/sui";
-    sui.flake = false;
   };
 
   outputs = { self, nixpkgs, flake-utils, git-hooks, devenv, ... }@inputs:
@@ -62,10 +59,6 @@
           modules = [{
             # https://devenv.sh/reference/options/
             packages = [ suiPkg ];
-            enterShell = ''
-              rm -v $(git rev-parse --show-toplevel)/.sui-repo
-              ln -s ${inputs.sui} $(git rev-parse --show-toplevel)/.sui-repo
-            '';
 
             languages = {
               nix.enable = true;

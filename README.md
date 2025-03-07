@@ -9,15 +9,21 @@
 
 ## Getting started
 
+Configure git to handle large repositories:
+
 ```sh
 git config --global http.postBuffer 524288000
 git config --global http.lowSpeedLimit 0
 git config --global http.lowSpeedTime 999999
 ```
 
+Clone the repository with submodules:
+
 ```sh
-git clone https://github.com/data-cartel/strike.git
+git clone --recurse-submodules https://github.com/data-cartel/strike.git
 ```
+
+Set up the development environment:
 
 ```sh
 direnv allow
@@ -28,7 +34,7 @@ direnv allow
 ```sh
 cd frontend
 pnpm install
-pnpm run dev
+pnpm dev
 ```
 
 ### Building the contracts

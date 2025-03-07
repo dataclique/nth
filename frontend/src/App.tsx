@@ -4,6 +4,7 @@ import { Box, Container, Flex, Heading } from "@radix-ui/themes"
 import { useState } from "react"
 import { Counter } from "./Counter"
 import { CreateCounter } from "./CreateCounter"
+import { BackendStatus } from "./BackendStatus"
 
 function App() {
   const currentAccount = useCurrentAccount()
@@ -32,6 +33,8 @@ function App() {
         </Box>
       </Flex>
       <Container>
+        <BackendStatus />
+
         <Container
           mt="5"
           pt="2"

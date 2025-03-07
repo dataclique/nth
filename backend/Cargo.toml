@@ -15,13 +15,5 @@ sqlx = { version = "0.8.3", features = [
   "tls-native-tls",
 ] }
 
-
-#########   ________  N O T E  ________  #########
-
-# Use this locally cause cloning the repo can take forever
-# sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
-
-# Commit this to use for deployment as internet is faster in the cloud
-sui_sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
-
-#########   ________  N O T E  ________  #########
+# Using the local sui-sdk from the .sui-repo directory
+sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }

@@ -244,24 +244,7 @@
         "devenv": "devenv",
         "flake-utils": "flake-utils",
         "git-hooks": "git-hooks",
-        "nixpkgs": "nixpkgs_3",
-        "sui": "sui"
-      }
-    },
-    "sui": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1741203712,
-        "narHash": "sha256-RHCdr+zXPitzC8dmZGbKA3UyCCf5+xD2bJAJ551judk=",
-        "owner": "MystenLabs",
-        "repo": "sui",
-        "rev": "3b36106904b1020794a44add948ccf739ec9c753",
-        "type": "github"
-      },
-      "original": {
-        "owner": "MystenLabs",
-        "repo": "sui",
-        "type": "github"
+        "nixpkgs": "nixpkgs_3"
       }
     },
     "systems": {
