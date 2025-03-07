@@ -38,6 +38,8 @@ fn all_options() -> &'static str {
     ""
 }
 
+// pub fn rocket()
+
 #[shuttle_runtime::main]
 async fn main() -> shuttle_rocket::ShuttleRocket {
     let rocket = rocket::build()

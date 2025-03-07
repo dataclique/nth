@@ -94,3 +94,27 @@ sui move test
 - [Stork Price Feeds](https://docs.stork.network/resources/asset-id-registry)
 - [Supra Price Feeds](https://supra.com/data)
 - [The Move Book](https://move-book.com/index.html)
+
+## Miscellaneous
+
+### Cool TLDs (top level domains)
+
+- \_.land
+- \_.finance
+- \_.money
+- \_.cash
+- \_.fund
+- \_.xyz
+- \_.fun
+- \_.club
+- \_.house
+- \_.studio
+
+### Brand/Domain Name ideas
+
+- theta.land
+- payoff.studio
+- volatility.studio
+- scholes.house
+- drisk.finance
+- spread.finance

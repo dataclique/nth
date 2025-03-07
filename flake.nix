@@ -67,18 +67,6 @@
               typescript.enable = true;
             };
 
-            services.postgres = {
-              enable = true;
-              initialDatabases = [{
-                name = "indexer-db";
-                user = "dev";
-                pass = "passwd";
-              }];
-              # extensions = extensions: [ extensions.timescaledb ];
-              # initialScript = "CREATE EXTENSION IF NOT EXISTS timescaledb;";
-              # settings.shared_preload_libraries = "timescaledb";
-            };
-
             inherit env;
             git-hooks = { inherit hooks; };
             difftastic.enable = true;

@@ -2,9 +2,19 @@
 
 [move]
 version = 3
-manifest_digest = "49D63DFBED41065A546B3B569EA8F345915A8CBF296D511A69266CB2D0EAE2B4"
-deps_digest = "F8BBB0CCB2491CA29A3DF03D6F92277A4F3574266507ACD77214D37ECA3F3082"
+manifest_digest = "51F3582FDE4700083F9080A212E9DC52149C78FF9B0EE54171166265CC819C1D"
+deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
+  { id = "DeepBook", name = "DeepBook" },
+  { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
+id = "DeepBook"
+source = { local = "../.sui-repo/crates/sui-framework/packages/deepbook" }
+
+dependencies = [
+  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
 ]
 

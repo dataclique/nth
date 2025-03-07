@@ -8,6 +8,9 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 [dependencies.Sui]
 local = "../.sui-repo/crates/sui-framework/packages/sui-framework"
 
+[dependencies.DeepBook]
+local = "../.sui-repo/crates/sui-framework/packages/deepbook"
+
 # [dependencies.Pyth]
 # git = "https://github.com/pyth-network/pyth-crosschain.git"
 # subdir = "target_chains/sui/contracts"
