@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - master
+    paths:
+      - "contracts/**"
+      - ".sui-repo/**"
 
 jobs:
   pipeline:
