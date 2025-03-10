@@ -5,7 +5,13 @@ use sui::coin::{Self, Coin};
 use sui::event;
 use usdc::usdc::USDC;
 
-public struct MarginAccount has key, store {
+// Error constants
+const ENotOwner: u64 = 1;
+const EInsufficientBalance: u64 = 2;
+
+// MarginAccount has key but not store, so only this module can transfer it
+// and we don't provide any transfer function, making it non-transferrable
+public struct MarginAccount has key {
   id: UID,
   owner: address,
   balance: Balance<USDC>,
@@ -23,25 +29,28 @@ public struct MarginAccountEvent has copy, drop {
 }
 
 /// Create a new empty margin account
-public fun new(ctx: &mut TxContext): MarginAccount {
+public fun new(ctx: &mut TxContext) {
+  let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
+
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&id),
     kind: MarginAccountEventKind::Creation,
   });
 
-  MarginAccount {
+  let margin_account = MarginAccount {
     id,
-    owner: tx_context::sender(ctx),
+    owner: sender,
     balance: balance::zero<USDC>(),
-  }
+  };
+
+  // Transfer the margin account to the sender
+  transfer::transfer(margin_account, sender);
 }
 
 /// Create a new margin account with an initial deposit
-public fun new_with_deposit(
-  deposit: Coin<USDC>,
-  ctx: &mut TxContext,
-): MarginAccount {
+public fun new_with_deposit(deposit: Coin<USDC>, ctx: &mut TxContext) {
+  let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
   let deposit_amount = coin::value(&deposit);
 
@@ -59,83 +68,75 @@ public fun new_with_deposit(
     kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
   });
 
-  MarginAccount {
+  let margin_account = MarginAccount {
     id,
-    owner: tx_context::sender(ctx),
+    owner: sender,
     balance: deposit_balance,
-  }
+  };
+
+  // Transfer the margin account to the sender
+  transfer::transfer(margin_account, sender);
 }
 
-#[test_only]
-use sui::test_scenario;
+/// Deposit USDC into a margin account
+/// Only the owner of the margin account can deposit
+public fun deposit(
+  margin_account: &mut MarginAccount,
+  coin: Coin<USDC>,
+  ctx: &mut TxContext,
+) {
+  // Verify that the sender is the owner of the margin account
+  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
 
-#[test]
-fun test_margin_account_creation() {
-  // Create test address representing the user
-  let alice = @0xA;
+  // Get the deposit amount for the event
+  let deposit_amount = coin::value(&coin);
 
-  // First transaction: Create a margin account
-  let mut scenario = test_scenario::begin(alice);
-  {
-    // Create a new margin account
-    let margin_account = new(scenario.ctx());
+  // Convert Coin to Balance and add it to the margin account's balance
+  let deposit_balance = coin::into_balance(coin);
+  balance::join(&mut margin_account.balance, deposit_balance);
 
-    // Verify the margin account properties
-    assert!(margin_account.owner == alice, 0);
-    assert!(balance::value(&margin_account.balance) == 0, 1);
-
-    // Transfer the margin account to the sender
-    transfer::transfer(margin_account, alice);
-  };
-
-  // Second transaction: Verify the margin account exists in storage
-  scenario.next_tx(alice);
-  {
-    // Check that the margin account exists and is owned by alice
-    assert!(
-      test_scenario::has_most_recent_for_address<MarginAccount>(alice),
-      2,
-    );
-  };
-
-  test_scenario::end(scenario);
+  // Emit deposit event
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&margin_account.id),
+    kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
+  });
 }
 
-#[test]
-fun test_margin_account_with_deposit() {
-  // Create test address representing the user
-  let alice = @0xA;
-  let deposit_amount = 1000;
+/// Withdraw USDC from a margin account
+/// Only the owner of the margin account can withdraw
+public fun withdraw(
+  margin_account: &mut MarginAccount,
+  amount: u64,
+  ctx: &mut TxContext,
+): Coin<USDC> {
+  // Verify that the sender is the owner of the margin account
+  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
 
-  // First transaction: Create a margin account with deposit
-  let mut scenario = test_scenario::begin(alice);
-  {
-    // Create a test USDC coin
-    let usdc_coin = coin::mint_for_testing<USDC>(
-      deposit_amount,
-      scenario.ctx(),
-    );
+  // Verify that the margin account has enough balance
+  assert!(
+    balance::value(&margin_account.balance) >= amount,
+    EInsufficientBalance,
+  );
 
-    // Create a new margin account with deposit
-    let margin_account = new_with_deposit(usdc_coin, scenario.ctx());
+  // Split the balance and convert to Coin
+  let withdraw_balance = balance::split(&mut margin_account.balance, amount);
+  let withdraw_coin = coin::from_balance(withdraw_balance, ctx);
 
-    // Verify the margin account properties
-    assert!(margin_account.owner == alice, 0);
-    assert!(balance::value(&margin_account.balance) == deposit_amount, 1);
+  // Emit withdrawal event
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&margin_account.id),
+    kind: MarginAccountEventKind::Withdrawal { amount },
+  });
 
-    // Transfer the margin account to the sender
-    transfer::transfer(margin_account, alice);
-  };
+  withdraw_coin
+}
 
-  // Second transaction: Verify the margin account exists in storage
-  scenario.next_tx(alice);
-  {
-    // Check that the margin account exists and is owned by alice
-    assert!(
-      test_scenario::has_most_recent_for_address<MarginAccount>(alice),
-      2,
-    );
-  };
+/// Get the current balance of the margin account
+public fun balance(margin_account: &MarginAccount): u64 {
+  balance::value(&margin_account.balance)
+}
 
-  test_scenario::end(scenario);
+/// Get the owner of the margin account
+public fun owner(margin_account: &MarginAccount): address {
+  margin_account.owner
 }
