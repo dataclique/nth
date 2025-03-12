@@ -6,7 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
 import { Counter } from "./Counter"
 import { CreateCounter } from "./CreateCounter"
 import { BackendStatus } from "./BackendStatus"
-import Plot from "./Plot"
+import { App2, CandleDataComponent } from "./Plot"
 
 function App() {
   const currentAccount = useCurrentAccount()
@@ -68,7 +68,16 @@ function App() {
                 </>
               }
             />
-            <Route path="/plot" element={<Plot />} />
+            <Route
+              path="/plot"
+              element={
+                <>
+                  <App2 />
+
+                  <CandleDataComponent />
+                </>
+              }
+            />
           </Routes>
         </Container>
       </>
