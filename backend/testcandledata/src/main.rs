@@ -1,20 +1,18 @@
 use rocket::{get, routes, State};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
-use tokio::time::sleep;
-use rocket_cors::{CorsOptions, AllowedOrigins}; // Import AllowedOrigins
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
+use csv::ReaderBuilder;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::BufReader;
+use rocket_cors::{CorsOptions, AllowedOrigins}; 
+use rocket::serde::json::Json;
 use rocket::http::Header;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::request::Request;
 use rocket::response::Response;
 use rocket::{options};
-
-use std::sync::{Arc, Mutex};
-use csv::ReaderBuilder;
-use serde::Deserialize;
-use std::fs::File;
-use std::io::BufReader;
-use rocket::serde::{Serialize, json::Json};
 
 pub struct CORS;
 
@@ -64,6 +62,7 @@ struct CandleResponse {
     high: f64,
     low: f64,
     close: f64,
+    symbol: String,
 }
 
 #[get("/")]
@@ -72,23 +71,23 @@ fn index() -> &'static str {
 }
 
 #[get("/candles")]
-fn candles(state: &State<Arc<CandleState>>) -> Json<CandleResponse> {
-    let mut index = state.index.lock().unwrap(); // Lock the index
-    let record = &state.data[*index]; // Get the current record
+async fn candles(state: &State<Arc<CandleState>>) -> Json<CandleResponse> {
+    let mut index = state.index.lock().await;
+    let record = &state.data[*index];
 
-    // Increment the index and wrap around if necessary
     *index = (*index + 1) % state.data.len();
 
-    // Format the response as JSON
+    sleep(Duration::from_secs(5)).await; // Ensure updates every second
+
     Json(CandleResponse {
         time: record.timestamp.clone(),
         open: record.open,
         high: record.high,
         low: record.low,
         close: record.close,
+        symbol: record.symbol.clone(),
     })
 }
-
 
 #[shuttle_runtime::main]
 async fn main() -> shuttle_rocket::ShuttleRocket {
@@ -109,16 +108,6 @@ async fn main() -> shuttle_rocket::ShuttleRocket {
     let state = Arc::new(CandleState {
         data,
         index: Mutex::new(0),
-    });
-
-    // Clone the state for the background task
-    let state_clone = Arc::clone(&state);
-
-    // Spawn a background task to simulate a delay of 2 seconds
-    tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(1)).await;
-        }
     });
 
     // Build the Rocket instance
