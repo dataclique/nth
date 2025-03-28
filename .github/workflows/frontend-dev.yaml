@@ -10,6 +10,9 @@ env:
 
 on:
   pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-dev.yaml"
 
 jobs:
   Deploy-Preview:

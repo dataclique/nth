@@ -12,6 +12,7 @@ on:
     paths:
       - "backend/**"
       - ".sui-repo/**"
+      - ".github/workflows/backend.yaml"
 
 jobs:
   deploy:

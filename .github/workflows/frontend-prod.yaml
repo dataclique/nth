@@ -9,6 +9,9 @@ on:
   push:
     branches:
       - master
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-prod.yaml"
 
 jobs:
   Deploy-Production:
