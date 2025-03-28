@@ -24,7 +24,7 @@ jobs:
       - uses: DeterminateSystems/flake-checker-action@main
 
       - name: Install Vercel
-        run: nix -v profile install nixpkgs#nodePackages.vercel
+        run: nix profile install nixpkgs#nodePackages.vercel
         #   run: |
         #     nix develop --impure --accept-flake-config --show-trace --command /bin/bash -c \
         #       'cd frontend && pnpm install'
