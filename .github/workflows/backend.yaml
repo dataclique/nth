@@ -1,5 +1,9 @@
 name: Backend CI/CD
 
+concurrency:
+  group: ${{ github.ref }}-backend
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
@@ -8,10 +12,12 @@ on:
     paths:
       - "backend/**"
       - ".sui-repo/**"
+      - ".github/workflows/backend.yaml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: prod
     steps:
       - uses: actions/checkout@v4
         with:
