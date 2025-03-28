@@ -15,8 +15,9 @@ on:
       - ".github/workflows/frontend-dev.yaml"
 
 jobs:
-  Deploy-Preview:
+  deploy:
     runs-on: ubuntu-latest
+    environment: dev
     steps:
       - uses: actions/checkout@v2
       - name: Install Node.js
