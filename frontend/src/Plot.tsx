@@ -1,10 +1,12 @@
 // TradingViewWidget.jsx
-import React, { useEffect, useRef, memo } from "react"
+import { useEffect, useRef, memo } from "react"
 
 function TradingViewWidget() {
-  const container = useRef()
+  const container = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!container.current) return
+
     const script = document.createElement("script")
     script.src =
       "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
