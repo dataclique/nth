@@ -1,5 +1,9 @@
 name: Sui CI/CD
 
+concurrency:
+  group: ${{ github.ref }}-smart-contracts
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   pull_request:

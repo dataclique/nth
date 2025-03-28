@@ -1,5 +1,9 @@
 name: Backend CI/CD
 
+concurrency:
+  group: ${{ github.ref }}-backend
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:

@@ -1,4 +1,4 @@
-name: Frontend CI/CD
+name: Frontend Production CI/CD
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
