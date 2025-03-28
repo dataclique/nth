@@ -1,19 +1,12 @@
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit"
-import { isValidSuiObjectId } from "@mysten/sui/utils"
 import { Box, Container, Flex, Heading } from "@radix-ui/themes"
-import { useState } from "react"
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
-import { Counter } from "./Counter"
-import { CreateCounter } from "./CreateCounter"
 import { BackendStatus } from "./BackendStatus"
 import Plot from "./Plot"
+import { MarginAccountManager } from "./MarginAccountManager"
 
 function App() {
   const currentAccount = useCurrentAccount()
-  const [counterId, setCounter] = useState(() => {
-    const hash = window.location.hash.slice(1)
-    return isValidSuiObjectId(hash) ? hash : null
-  })
 
   return (
     <Router>
@@ -28,8 +21,9 @@ function App() {
           }}
         >
           <Box>
-            <Heading>dApp Starter Template</Heading>
-            <Link to="/">Home</Link> | <Link to="/plot">Plot</Link>
+            <Heading>Strike Finance</Heading>
+            <Link to="/">Home</Link> | <Link to="/portfolio">Portfolio</Link> |{" "}
+            <Link to="/plot">Plot</Link>
           </Box>
 
           <Box>
@@ -51,21 +45,25 @@ function App() {
                     style={{ background: "var(--gray-a2)", minHeight: 500 }}
                   >
                     {currentAccount ? (
-                      counterId ? (
-                        <Counter id={counterId} />
-                      ) : (
-                        <CreateCounter
-                          onCreated={id => {
-                            window.location.hash = id
-                            setCounter(id)
-                          }}
-                        />
-                      )
+                      <MarginAccountManager />
                     ) : (
                       <Heading>Please connect your wallet</Heading>
                     )}
                   </Container>
                 </>
+              }
+            />
+            <Route
+              path="/portfolio"
+              element={
+                <Container
+                  mt="5"
+                  pt="2"
+                  px="4"
+                  style={{ background: "var(--gray-a2)", minHeight: 500 }}
+                >
+                  <MarginAccountManager />
+                </Container>
               }
             />
             <Route path="/plot" element={<Plot />} />
