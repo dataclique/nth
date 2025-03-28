@@ -19,10 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      #   - uses: DeterminateSystems/nix-installer-action@main
-      #   - uses: DeterminateSystems/flakehub-cache-action@main
-      #   - uses: DeterminateSystems/flake-checker-action@main
-
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
