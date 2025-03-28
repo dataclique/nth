@@ -23,11 +23,10 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@main
       - uses: DeterminateSystems/flake-checker-action@main
 
-      #   - name: Install Vercel
-      #     # run: nix profile install nixpkgs#{nodePackages.vercel}
-      #       run: |
-      #         nix develop --impure --accept-flake-config --show-trace --command /bin/bash -c \
-      #           'cd frontend && pnpm install'
+      - name: Install Vercel
+        run: |
+          nix develop --impure --accept-flake-config --show-trace --command /bin/bash -c \
+            'pnpm add -g vercel'
 
       - name: Pull Vercel Environment Information
         run: |

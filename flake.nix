@@ -58,7 +58,7 @@
           inherit inputs pkgs;
           modules = [{
             # https://devenv.sh/reference/options/
-            packages = [ suiPkg pkgs.nodePackages.vercel ];
+            packages = [ suiPkg ];
 
             languages = {
               nix.enable = true;
