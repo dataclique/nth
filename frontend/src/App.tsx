@@ -73,8 +73,6 @@ function App() {
               element={
                 <>
                   <App2 />
-
-                  <CandleDataComponent />
                 </>
               }
             />

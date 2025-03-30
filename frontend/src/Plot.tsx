@@ -32,7 +32,11 @@ export const ChartComponent = props => {
       width: chartContainerRef.current.clientWidth,
       height: 300,
     })
-    chart.timeScale().fitContent()
+
+    chart.timeScale().applyOptions({
+      timeVisible: true, // Enables hours and minutes on the x-axis
+      secondsVisible: false, // Optional: hides seconds if not needed
+    })
 
     const newSeries = chart.addSeries(CandlestickSeries, {
       upColor,
@@ -80,18 +84,28 @@ export const CandleDataComponent = () => {
       }
       const result = await response.json() // Parse the response as JSON
 
-      console.log(result)
-
       const newCandle = {
-        time: result.time.split("T")[0],
+        time: Math.floor(new Date(result.time).getTime() / 1000),
         open: result.open,
         high: result.high,
         low: result.low,
         close: result.close,
       }
 
-      setData(prevData => [...prevData, newCandle])
-      setRealtimeUpdates(prevUpdates => [...prevUpdates, newCandle]) // Add to real-time updates
+      console.log(newCandle)
+      console.log(result.symbol)
+
+      // Check if the candle already exists in the data
+      const isDuplicate = data.some(candle => candle.time === newCandle.time)
+      if (!isDuplicate) {
+        setData(prevData => {
+          const newData = [...prevData, newCandle].sort(
+            (a, b) => a.time - b.time,
+          )
+          return newData
+        })
+        setRealtimeUpdates(prevUpdates => [...prevUpdates, newCandle])
+      }
     } catch (error) {
       console.error("Error fetching data:", error)
     }
@@ -102,31 +116,7 @@ export const CandleDataComponent = () => {
     const interval = setInterval(fetchData, 1000) // Fetch data every 2 seconds
 
     return () => clearInterval(interval) // Cleanup interval on component unmount
-  }, [])
-
-  // Simulate real-time updates
-  useEffect(() => {
-    const chart = createChart(document.createElement("div")) // Dummy chart for series
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#26a69a",
-      downColor: "#ef5350",
-      borderVisible: false,
-      wickUpColor: "#26a69a",
-      wickDownColor: "#ef5350",
-    })
-
-    const intervalID = setInterval(() => {
-      if (realtimeUpdates.length > 0) {
-        const update = realtimeUpdates[realtimeUpdates.length - 1] // Get the latest update
-        series.update(update) // Update the chart with the latest data
-      }
-    }, 100)
-
-    return () => {
-      clearInterval(intervalID)
-      chart.remove()
-    }
-  }, [realtimeUpdates])
+  }, [data]) // Add data as a dependency to avoid stale state
 
   return (
     <div>
