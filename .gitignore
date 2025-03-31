@@ -7,3 +7,6 @@
 .claude/skills/gitbutler
 .cursor/skills/gitbutler
 .cursor/cli.json
+
+backend/testcandledata/target/
+/node_modules
