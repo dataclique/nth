@@ -2,20 +2,11 @@
 
 [move]
 version = 3
-manifest_digest = "51F3582FDE4700083F9080A212E9DC52149C78FF9B0EE54171166265CC819C1D"
+manifest_digest = "1F14EE13E1EDE2A9A6AEA2E11491AE2333E4E0251DD0A1FF57E5D8AD3042EF66"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
-  { id = "DeepBook", name = "DeepBook" },
   { id = "Sui", name = "Sui" },
-]
-
-[[move.package]]
-id = "DeepBook"
-source = { local = "../.sui-repo/crates/sui-framework/packages/deepbook" }
-
-dependencies = [
-  { id = "MoveStdlib", name = "MoveStdlib" },
-  { id = "Sui", name = "Sui" },
+  { id = "usdc", name = "usdc" },
 ]
 
 [[move.package]]
@@ -28,6 +19,33 @@ source = { local = "../.sui-repo/crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
+]
+
+[[move.package]]
+id = "stablecoin"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/stablecoin" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+  { id = "sui_extensions", name = "sui_extensions" },
+]
+
+[[move.package]]
+id = "sui_extensions"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/sui_extensions" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
+id = "usdc"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/usdc" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+  { id = "stablecoin", name = "stablecoin" },
+  { id = "sui_extensions", name = "sui_extensions" },
 ]
 
 [move.toolchain-version]
