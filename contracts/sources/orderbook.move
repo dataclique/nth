@@ -1,9 +1,12 @@
 module strike::orderbook;
 
+use std::vector;
 use strike::strike::{Self, MarginAccount};
 use sui::event;
-
-// TODO: now no freezing coins in margin account while placing orders
+use sui::object::{Self, UID};
+use sui::table::{Self, Table};
+use sui::transfer;
+use sui::tx_context::{Self, TxContext};
 
 // Error codes
 const EInsufficientBalance: u64 = 1;
@@ -13,10 +16,21 @@ const EOrderNotFound: u64 = 4;
 const EUnauthorized: u64 = 5;
 const EInvalidOrderState: u64 = 6;
 const EInvalidPosition: u64 = 7;
+const EInsufficientLockedBalance: u64 = 8;
+
+// Order side
+const LONG: bool = true;
+const SHORT: bool = false;
 
 // Order types
 const LIMIT: u8 = 0;
 const MARKET: u8 = 1;
+
+// Order status
+const OPEN: u8 = 0;
+const FILLED: u8 = 1;
+const CANCELLED: u8 = 2;
+const PARTIALLY_FILLED: u8 = 3;
 
 public struct Position has store {
   owner: address,
@@ -27,13 +41,19 @@ public struct Position has store {
 }
 
 public struct Order has store {
-  owner: address,
+  margin_account_id: ID,
   is_long: bool,
   order_type: u8,
   price: u64,
   size: u64,
   filled_size: u64,
   collateral: u64,
+  status: u8,
+}
+
+public struct LockedBalance has store {
+  margin_account_id: ID,
+  amount: u64,
 }
 
 public struct OrderBook has key {
@@ -42,11 +62,17 @@ public struct OrderBook has key {
   asks: vector<Order>, // Sell/Short orders sorted by price (lowest first)
   positions: vector<Position>,
   min_collateral: u64, // Minimum collateral required to open a position
+  // accounts: Table<ID, Account>,
 }
+
+// one account for each user stores their orders
+// public struct Account has copy, drop, store {
+//   orders_id: vector<ID>,
+// }
 
 // Events
 public struct OrderCreated has copy, drop {
-  owner: address,
+  margin_account_id: ID,
   is_long: bool,
   order_type: u8,
   price: u64,
@@ -54,7 +80,7 @@ public struct OrderCreated has copy, drop {
 }
 
 public struct PositionOpened has copy, drop {
-  owner: address,
+  margin_account_id: ID,
   is_long: bool,
   size: u64,
   entry_price: u64,
@@ -62,10 +88,20 @@ public struct PositionOpened has copy, drop {
 }
 
 public struct OrderMatched has copy, drop {
-  maker_address: address,
-  taker_address: address,
+  maker_margin_account_id: ID,
+  taker_margin_account_id: ID,
   price: u64,
   size: u64,
+}
+
+public struct BalanceLocked has copy, drop {
+  margin_account_id: ID,
+  amount: u64,
+}
+
+public struct BalanceUnlocked has copy, drop {
+  margin_account_id: ID,
+  amount: u64,
 }
 
 public fun new(min_collateral: u64, ctx: &mut TxContext) {
@@ -75,13 +111,57 @@ public fun new(min_collateral: u64, ctx: &mut TxContext) {
     asks: vector::empty(),
     positions: vector::empty(),
     min_collateral,
+    // accounts: table::new(ctx),
   };
   transfer::share_object(orderbook);
+}
+
+public fun get_available_balance(
+  orderbook: &OrderBook,
+  margin_account: &MarginAccount,
+): u64 {
+  let total_balance = strike::balance(margin_account);
+  let total_locked = get_locked_balance(orderbook, object::id(margin_account));
+
+  total_balance - total_locked
+}
+
+// Calculate total locked amount from all open orders
+public fun get_locked_balance(
+  orderbook: &OrderBook,
+  margin_account_id: ID,
+): u64 {
+  let mut total_locked = 0;
+  let mut i = 0;
+  let bids_len = vector::length(&orderbook.bids);
+  let asks_len = vector::length(&orderbook.asks);
+
+  // Sum up locked amounts from bid orders
+  while (i < bids_len) {
+    let order = vector::borrow(&orderbook.bids, i);
+    if (order.margin_account_id == margin_account_id && order.status == OPEN) {
+      total_locked = total_locked + order.collateral;
+    };
+    i = i + 1;
+  };
+
+  // Sum up locked amounts from ask orders
+  i = 0;
+  while (i < asks_len) {
+    let order = vector::borrow(&orderbook.asks, i);
+    if (order.margin_account_id == margin_account_id && order.status == OPEN) {
+      total_locked = total_locked + order.collateral;
+    };
+    i = i + 1;
+  };
+
+  total_locked
 }
 
 public fun place_limit_order(
   orderbook: &mut OrderBook,
   margin_account: &mut MarginAccount,
+  margin_account_id: ID,
   is_long: bool,
   price: u64,
   size: u64,
@@ -103,19 +183,26 @@ public fun place_limit_order(
     required_collateral >= orderbook.min_collateral,
     EInsufficientBalance,
   );
-  assert!(
-    strike::balance(margin_account) >= required_collateral,
-    EInsufficientBalance,
+
+  let sender = tx_context::sender(ctx);
+  let available_balance = get_available_balance(
+    orderbook,
+    margin_account,
   );
+  assert!(available_balance >= required_collateral, EInsufficientBalance);
+
+  // Lock the required collateral
+  lock_balance(orderbook, sender, required_collateral);
 
   let order = Order {
-    owner: tx_context::sender(ctx),
+    margin_account_id,
     is_long,
     order_type: LIMIT,
     price,
     size,
     filled_size: 0,
     collateral: required_collateral,
+    status: OPEN,
   };
 
   // Add order to the appropriate vector and sort
@@ -128,11 +215,16 @@ public fun place_limit_order(
   };
 
   event::emit(OrderCreated {
-    owner: tx_context::sender(ctx),
+    owner: sender,
     is_long,
     order_type: LIMIT,
     price,
     size,
+  });
+
+  event::emit(BalanceLocked {
+    owner: sender,
+    amount: required_collateral,
   });
 }
 
@@ -161,18 +253,26 @@ public fun place_market_order(
     size
   };
 
-  assert!(
-    strike::balance(margin_account) >= initial_margin,
-    EInsufficientBalance,
-  );
-  let _margin_account = margin_account; // Use margin_account to satisfy compiler
+  let available_balance = get_available_balance(orderbook, margin_account);
+  assert!(available_balance >= initial_margin, EInsufficientBalance);
+
+  // Lock the required collateral
+  lock_balance(orderbook, sender, initial_margin);
+
+  event::emit(BalanceLocked {
+    owner: sender,
+    amount: initial_margin,
+  });
 
   // Match against existing orders
   if (is_long) {
     // Market buy order matches with asks (sells)
     while (remaining_size > 0 && !vector::is_empty(&orderbook.asks)) {
       // Get the best ask order details first
-      let best_ask_owner = vector::borrow(&orderbook.asks, 0).owner;
+      let best_ask_margin_account_id = vector::borrow(
+        &orderbook.asks,
+        0,
+      ).margin_account_id;
       let best_ask_price = vector::borrow(&orderbook.asks, 0).price;
       let best_ask_size = vector::borrow(&orderbook.asks, 0).size;
 
@@ -185,7 +285,7 @@ public fun place_market_order(
       // Update positions
       update_position(
         orderbook,
-        best_ask_owner,
+        best_ask_margin_account_id,
         best_ask_price,
         match_size,
         false,
@@ -199,7 +299,7 @@ public fun place_market_order(
       ); // Taker is buying
 
       event::emit(OrderMatched {
-        maker_address: best_ask_owner,
+        maker_address: best_ask_margin_account_id,
         taker_address: sender,
         price: best_ask_price,
         size: match_size,
@@ -211,19 +311,45 @@ public fun place_market_order(
       if (match_size == best_ask_size) {
         // Remove the entire order
         let removed_order = vector::remove(&mut orderbook.asks, 0);
-        // We need to use the removed order to satisfy the compiler
-        let Order { size: removed_size, .. } = removed_order;
-        assert!(removed_size == best_ask_size, EInvalidOrderState);
+        // Store the values we need before destructuring
+        let order_margin_account_id = removed_order.margin_account_id;
+        let order_collateral = removed_order.collateral;
+        // Use the removed order to satisfy the compiler
+        let Order { status, .. } = removed_order;
+        assert!(status == OPEN, EInvalidOrderState);
+
+        // Unlock the maker's balance
+        unlock_balance(orderbook, order_margin_account_id, order_collateral);
+
+        event::emit(BalanceUnlocked {
+          owner: order_margin_account_id,
+          amount: order_collateral,
+        });
       } else {
         let order = vector::borrow_mut(&mut orderbook.asks, 0);
+        let original_size = order.size;
+        let order_margin_account_id = order.margin_account_id;
+        let order_collateral = order.collateral;
         order.size = order.size - match_size;
+
+        // Partially unlock the maker's balance
+        let unlocked_amount = (order_collateral * match_size) / original_size;
+        unlock_balance(orderbook, order_margin_account_id, unlocked_amount);
+
+        event::emit(BalanceUnlocked {
+          margin_account_id: order_margin_account_id,
+          amount: unlocked_amount,
+        });
       };
     };
   } else {
     // Market sell order matches with bids (buys)
     while (remaining_size > 0 && !vector::is_empty(&orderbook.bids)) {
       // Get the best bid order details first
-      let best_bid_owner = vector::borrow(&orderbook.bids, 0).owner;
+      let best_bid_margin_account_id = vector::borrow(
+        &orderbook.bids,
+        0,
+      ).margin_account_id;
       let best_bid_price = vector::borrow(&orderbook.bids, 0).price;
       let best_bid_size = vector::borrow(&orderbook.bids, 0).size;
 
@@ -236,7 +362,7 @@ public fun place_market_order(
       // Update positions
       update_position(
         orderbook,
-        best_bid_owner,
+        best_bid_margin_account_id,
         best_bid_price,
         match_size,
         true,
@@ -250,8 +376,8 @@ public fun place_market_order(
       ); // Taker is selling
 
       event::emit(OrderMatched {
-        maker_address: best_bid_owner,
-        taker_address: sender,
+        maker_margin_account_id: best_bid_margin_account_id,
+        taker_margin_account_id: sender,
         price: best_bid_price,
         size: match_size,
       });
@@ -262,22 +388,103 @@ public fun place_market_order(
       if (match_size == best_bid_size) {
         // Remove the entire order
         let removed_order = vector::remove(&mut orderbook.bids, 0);
-        // We need to use the removed order to satisfy the compiler
-        let Order { size: removed_size, .. } = removed_order;
-        assert!(removed_size == best_bid_size, EInvalidOrderState);
+        // Store the values we need before destructuring
+        let order_margin_account_id = removed_order.margin_account_id;
+        let order_collateral = removed_order.collateral;
+        // Use the removed order to satisfy the compiler
+        let Order { status, .. } = removed_order;
+        assert!(status == OPEN, EInvalidOrderState);
+
+        // Unlock the maker's balance
+        unlock_balance(orderbook, order_margin_account_id, order_collateral);
+
+        event::emit(BalanceUnlocked {
+          margin_account_id: order_margin_account_id,
+          amount: order_collateral,
+        });
       } else {
         let order = vector::borrow_mut(&mut orderbook.bids, 0);
+        let original_size = order.size;
+        let order_margin_account_id = order.margin_account_id;
+        let order_collateral = order.collateral;
         order.size = order.size - match_size;
+
+        // Partially unlock the maker's balance
+        let unlocked_amount = (order_collateral * match_size) / original_size;
+        unlock_balance(orderbook, order_margin_account_id, unlocked_amount);
+
+        event::emit(BalanceUnlocked {
+          margin_account_id: order_margin_account_id,
+          amount: unlocked_amount,
+        });
       };
     };
   };
 
   assert!(remaining_size == 0, EInvalidOrderState); // Ensure the entire order was filled
+
+  // Unlock any remaining balance for the market order
+  unlock_balance(orderbook, sender, initial_margin);
+
+  event::emit(BalanceUnlocked {
+    owner: sender,
+    amount: initial_margin,
+  });
+}
+
+// Function to cancel an order and unlock the balance
+public fun cancel_order(
+  orderbook: &mut OrderBook,
+  margin_account_id: ID,
+  is_long: bool,
+  price: u64,
+  ctx: &mut TxContext,
+) {
+  let sender = tx_context::sender(ctx);
+  let mut i = 0;
+  let mut found = false;
+  let mut order_index = 0;
+  let mut order_collateral = 0;
+
+  // Find the order to cancel
+  let orders = if (is_long) {
+    &mut orderbook.bids
+  } else {
+    &mut orderbook.asks
+  };
+
+  let len = vector::length(orders);
+  while (i < len) {
+    let order = vector::borrow(orders, i);
+    if (
+      order.margin_account_id == margin_account_id && order.price == price && order.status == OPEN
+    ) {
+      found = true;
+      order_index = i;
+      order_collateral = order.collateral;
+      break
+    };
+    i = i + 1;
+  };
+
+  assert!(found, EOrderNotFound);
+  // Remove the order and store it since it can't be dropped
+  let removed_order = vector::remove(orders, order_index);
+  // Use the removed order to satisfy the compiler
+  let Order { status, .. } = removed_order;
+  assert!(status == OPEN, EInvalidOrderState);
+  // Unlock the balance
+  unlock_balance(orderbook, sender, order_collateral);
+
+  event::emit(BalanceUnlocked {
+    owner: sender,
+    amount: order_collateral,
+  });
 }
 
 fun update_position(
   orderbook: &mut OrderBook,
-  owner: address,
+  margin_account_id: ID,
   price: u64,
   size: u64,
   is_long: bool,
@@ -288,7 +495,9 @@ fun update_position(
 
   while (i < len) {
     let position = vector::borrow_mut(&mut orderbook.positions, i);
-    if (position.owner == owner && position.is_long == is_long) {
+    if (
+      position.margin_account_id == margin_account_id && position.is_long == is_long
+    ) {
       // Update existing position
       let new_size = position.size + size;
       position.entry_price =
@@ -303,7 +512,7 @@ fun update_position(
   if (!found) {
     // Create new position
     let position = Position {
-      owner,
+      margin_account_id,
       size,
       entry_price: price,
       is_long,
@@ -312,7 +521,7 @@ fun update_position(
     vector::push_back(&mut orderbook.positions, position);
 
     event::emit(PositionOpened {
-      owner,
+      margin_account_id,
       is_long,
       size,
       entry_price: price,
@@ -350,6 +559,59 @@ fun sort_asks(asks: &mut vector<Order>) {
         vector::swap(asks, i, j);
       };
       j = j + 1;
+    };
+    i = i + 1;
+  };
+}
+
+// Function to lock a balance for an order
+fun lock_balance(orderbook: &mut OrderBook, owner: address, amount: u64) {
+  let mut i = 0;
+  let mut found = false;
+  let len = vector::length(&orderbook.locked_balances);
+
+  while (i < len) {
+    let locked_balance = vector::borrow_mut(&mut orderbook.locked_balances, i);
+    if (locked_balance.owner == owner) {
+      locked_balance.amount = locked_balance.amount + amount;
+      found = true;
+      break
+    };
+    i = i + 1;
+  };
+
+  if (!found) {
+    let locked_balance = LockedBalance {
+      owner,
+      amount,
+    };
+    vector::push_back(&mut orderbook.locked_balances, locked_balance);
+  };
+}
+
+// Function to unlock a balance
+fun unlock_balance(orderbook: &mut OrderBook, owner: address, amount: u64) {
+  let mut i = 0;
+  let len = vector::length(&orderbook.locked_balances);
+
+  while (i < len) {
+    let locked_balance = vector::borrow_mut(&mut orderbook.locked_balances, i);
+    if (locked_balance.owner == owner) {
+      assert!(locked_balance.amount >= amount, EInsufficientLockedBalance);
+      locked_balance.amount = locked_balance.amount - amount;
+
+      // Remove the entry if the locked balance is zero
+      if (locked_balance.amount == 0) {
+        let removed_balance = vector::remove(&mut orderbook.locked_balances, i);
+        // Use the removed balance to satisfy the compiler
+        let LockedBalance { owner: removed_owner, amount: removed_amount } =
+          removed_balance;
+        assert!(
+          removed_owner == owner && removed_amount == 0,
+          EInvalidOrderState,
+        );
+      };
+      break
     };
     i = i + 1;
   };
