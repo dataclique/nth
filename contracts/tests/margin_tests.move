@@ -1,9 +1,9 @@
 #[test_only]
 module strike::margin_tests;
 
-use strike::strike::{Self, MarginAccount};
-use sui::coin::{Self, mint_for_testing};
-use sui::test_scenario::{Self, begin, end};
+use strike::strike;
+use sui::coin::mint_for_testing;
+use sui::test_scenario::{begin, end};
 use usdc::usdc::USDC;
 
 #[test]

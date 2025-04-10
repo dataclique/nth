@@ -1,6 +1,7 @@
 module strike::orderbook;
 
 use strike::strike::{Self, MarginAccount};
+use sui::event;
 
 // Error codes
 const EInsufficientBalance: u64 = 1;
@@ -11,6 +12,7 @@ const EUnauthorized: u64 = 5;
 const EInvalidOrderState: u64 = 6;
 const EInvalidPosition: u64 = 7;
 const EInsufficientLockedBalance: u64 = 8;
+const EInvalidAccountOwner: u64 = 9;
 
 // Order side
 const LONG: bool = true;
@@ -36,12 +38,11 @@ public struct Position has store {
 
 public struct Order has store {
   margin_account_id: ID,
-  is_long: bool,
+  is_bid: bool,
   order_type: u8,
   price: u64,
   size: u64,
   filled_size: u64,
-  collateral: u64,
   status: u8,
 }
 
@@ -66,7 +67,7 @@ public struct OrderBook has key, store {
 // Events
 public struct OrderCreated has copy, drop {
   margin_account_id: ID,
-  is_long: bool,
+  is_bid: bool,
   order_type: u8,
   price: u64,
   size: u64,
@@ -131,7 +132,7 @@ public fun get_locked_balance(
   while (i < bids_len) {
     let order = vector::borrow(&orderbook.bids, i);
     if (order.margin_account_id == margin_account_id && order.status == OPEN) {
-      total_locked = total_locked + order.collateral;
+      total_locked = total_locked + order.price*order.size;
     };
     i = i + 1;
   };
@@ -141,7 +142,7 @@ public fun get_locked_balance(
   while (i < asks_len) {
     let order = vector::borrow(&orderbook.asks, i);
     if (order.margin_account_id == margin_account_id && order.status == OPEN) {
-      total_locked = total_locked + order.collateral;
+      total_locked = total_locked + order.price*order.size;
     };
     i = i + 1;
   };
@@ -149,75 +150,59 @@ public fun get_locked_balance(
   total_locked
 }
 
-// public fun place_limit_order(
-//   orderbook: &mut OrderBook,
-//   margin_account: &mut MarginAccount,
-//   margin_account_id: ID,
-//   is_long: bool,
-//   price: u64,
-//   size: u64,
-//   ctx: &mut TxContext,
-// ) {
-//   assert!(price > 0, EInvalidPrice);
-//   assert!(size > 0, EInvalidQuantity);
+public fun place_limit_order(
+  orderbook: &mut OrderBook,
+  margin_account: &mut MarginAccount,
+  margin_account_id: ID,
+  is_bid: bool,
+  price: u64,
+  size: u64,
+  ctx: &mut TxContext,
+) {
+  let sender = tx_context::sender(ctx);
+  assert!(price > 0, EInvalidPrice);
+  assert!(size > 0, EInvalidQuantity);
+  assert!(sender == margin_account.owner(), EInvalidAccountOwner);
 
-//   // Calculate required collateral (simple version for now)
-//   let required_collateral = if (is_long) {
-//     // For longs, we need price * size as collateral
-//     price * size
-//   } else {
-//     // For shorts, we need size as collateral (simplified)
-//     size
-//   };
+  let available_balance = get_available_balance(
+    orderbook,
+    margin_account,
+  );
+  let required_amount = price*size;
 
-//   assert!(
-//     required_collateral >= orderbook.min_collateral,
-//     EInsufficientBalance,
-//   );
+  assert!(available_balance >= required_amount, EInsufficientBalance);
 
-//   let sender = tx_context::sender(ctx);
-//   let available_balance = get_available_balance(
-//     orderbook,
-//     margin_account,
-//   );
-//   assert!(available_balance >= required_collateral, EInsufficientBalance);
+  let order = Order {
+    margin_account_id,
+    is_bid,
+    order_type: LIMIT,
+    price,
+    size,
+    filled_size: 0,
+    status: OPEN,
+  };
 
-//   // Lock the required collateral
-//   lock_balance(orderbook, sender, required_collateral);
+  if (is_bid) {
+    vector::push_back(&mut orderbook.bids, order);
+    // sort_bids(&mut orderbook.bids);
+  } else {
+    vector::push_back(&mut orderbook.asks, order);
+    // sort_asks(&mut orderbook.asks);
+  };
 
-//   let order = Order {
-//     margin_account_id,
-//     is_long,
-//     order_type: LIMIT,
-//     price,
-//     size,
-//     filled_size: 0,
-//     collateral: required_collateral,
-//     status: OPEN,
-//   };
+  event::emit(OrderCreated {
+    margin_account_id,
+    is_bid,
+    order_type: LIMIT,
+    price,
+    size,
+  });
 
-//   // Add order to the appropriate vector and sort
-//   if (is_long) {
-//     vector::push_back(&mut orderbook.bids, order);
-//     sort_bids(&mut orderbook.bids);
-//   } else {
-//     vector::push_back(&mut orderbook.asks, order);
-//     sort_asks(&mut orderbook.asks);
-//   };
-
-//   event::emit(OrderCreated {
-//     owner: sender,
-//     is_long,
-//     order_type: LIMIT,
-//     price,
-//     size,
-//   });
-
-//   event::emit(BalanceLocked {
-//     owner: sender,
-//     amount: required_collateral,
-//   });
-// }
+  event::emit(BalanceLocked {
+    margin_account_id,
+    amount: required_amount,
+  });
+}
 
 // public fun place_market_order(
 //   orderbook: &mut OrderBook,
@@ -555,31 +540,6 @@ public fun get_locked_balance(
 //   };
 // }
 
-// // Function to lock a balance for an order
-// fun lock_balance(orderbook: &mut OrderBook, owner: address, amount: u64) {
-//   let mut i = 0;
-//   let mut found = false;
-//   let len = vector::length(&orderbook.locked_balances);
-
-//   while (i < len) {
-//     let locked_balance = vector::borrow_mut(&mut orderbook.locked_balances, i);
-//     if (locked_balance.owner == owner) {
-//       locked_balance.amount = locked_balance.amount + amount;
-//       found = true;
-//       break
-//     };
-//     i = i + 1;
-//   };
-
-//   if (!found) {
-//     let locked_balance = LockedBalance {
-//       owner,
-//       amount,
-//     };
-//     vector::push_back(&mut orderbook.locked_balances, locked_balance);
-//   };
-// }
-
 // // Function to unlock a balance
 // fun unlock_balance(orderbook: &mut OrderBook, owner: address, amount: u64) {
 //   let mut i = 0;
@@ -650,3 +610,39 @@ public fun get_locked_balance(
 //   };
 //   (size, entry_price, collateral)
 // }
+
+public fun get_bids_length(orderbook: &OrderBook): u64 {
+  vector::length(&orderbook.bids)
+}
+
+public fun get_bid(orderbook: &OrderBook, index: u64): &Order {
+  vector::borrow(&orderbook.bids, index)
+}
+
+public fun get_order_margin_account_id(order: &Order): ID {
+  order.margin_account_id
+}
+
+public fun get_order_is_bid(order: &Order): bool {
+  order.is_bid
+}
+
+public fun get_order_price(order: &Order): u64 {
+  order.price
+}
+
+public fun get_order_size(order: &Order): u64 {
+  order.size
+}
+
+public fun get_order_filled_size(order: &Order): u64 {
+  order.filled_size
+}
+
+public fun get_order_status(order: &Order): u8 {
+  order.status
+}
+
+public fun get_open_status(): u8 {
+  OPEN
+}
