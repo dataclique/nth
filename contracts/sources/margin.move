@@ -11,7 +11,7 @@ const EInsufficientBalance: u64 = 2;
 
 // MarginAccount has key but not store, so only this module can transfer it
 // and we don't provide any transfer function, making it non-transferrable
-public struct MarginAccount has key {
+public struct MarginAccount has key, store {
   id: UID,
   owner: address,
   balance: Balance<USDC>,
@@ -29,7 +29,7 @@ public struct MarginAccountEvent has copy, drop {
 }
 
 /// Create a new empty margin account
-public fun new(ctx: &mut TxContext) {
+public fun new(ctx: &mut TxContext): MarginAccount {
   let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
 
@@ -38,18 +38,18 @@ public fun new(ctx: &mut TxContext) {
     kind: MarginAccountEventKind::Creation,
   });
 
-  let margin_account = MarginAccount {
+  MarginAccount {
     id,
     owner: sender,
     balance: balance::zero<USDC>(),
-  };
-
-  // Transfer the margin account to the sender
-  transfer::transfer(margin_account, sender);
+  }
 }
 
 /// Create a new margin account with an initial deposit
-public fun new_with_deposit(deposit: Coin<USDC>, ctx: &mut TxContext) {
+public fun new_with_deposit(
+  deposit: Coin<USDC>,
+  ctx: &mut TxContext,
+): MarginAccount {
   let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
   let deposit_amount = coin::value(&deposit);
@@ -68,14 +68,11 @@ public fun new_with_deposit(deposit: Coin<USDC>, ctx: &mut TxContext) {
     kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
   });
 
-  let margin_account = MarginAccount {
+  MarginAccount {
     id,
     owner: sender,
     balance: deposit_balance,
-  };
-
-  // Transfer the margin account to the sender
-  transfer::transfer(margin_account, sender);
+  }
 }
 
 /// Deposit USDC into a margin account

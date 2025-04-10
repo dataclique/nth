@@ -1,37 +1,28 @@
 #[test_only]
 module strike::orderbook_tests;
 
-use strike::orderbook;
+use strike::orderbook::{Self, OrderBook};
 use strike::strike::{Self, MarginAccount};
-use sui::coin;
-use sui::test_scenario;
+use sui::coin::{Self, mint_for_testing};
+use sui::sui::SUI;
+use sui::test_scenario::{Self, begin, end};
 use usdc::usdc::USDC;
 
 const TEST_USDC_AMOUNT: u64 = 1000;
 
 #[test]
 fun test_get_available_balance_no_orders() {
+  let mut test = begin(@0xF);
   let alice = @0xA;
-  let mut scenario = test_scenario::begin(alice);
-
-  // First transaction: Create margin account with deposit
+  test.next_tx(alice);
   {
     let usdc_coin = coin::mint_for_testing<USDC>(
       TEST_USDC_AMOUNT,
-      scenario.ctx(),
+      test.ctx(),
     );
 
-    strike::new_with_deposit(usdc_coin, scenario.ctx());
-  };
-
-  // Second transaction: Create orderbook and test balance
-  scenario.next_tx(alice);
-  {
-    let orderbook = orderbook::empty(scenario.ctx());
-
-    let margin_account = test_scenario::take_from_sender<MarginAccount>(
-      &scenario,
-    );
+    let margin_account = strike::new_with_deposit(usdc_coin, test.ctx());
+    let orderbook = orderbook::empty(test.ctx());
 
     let available_balance = orderbook::get_available_balance(
       &orderbook,
@@ -40,10 +31,9 @@ fun test_get_available_balance_no_orders() {
 
     assert!(available_balance == TEST_USDC_AMOUNT, 1);
 
-    test_scenario::return_to_sender(&scenario, margin_account);
-
-    orderbook::destroy(orderbook);
+    transfer::public_transfer(margin_account, alice);
+    transfer::public_transfer(orderbook, alice);
   };
 
-  test_scenario::end(scenario);
+  end(test);
 }

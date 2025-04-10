@@ -50,7 +50,7 @@ public struct LockedBalance has store {
   amount: u64,
 }
 
-public struct OrderBook has key {
+public struct OrderBook has key, store {
   id: UID,
   bids: vector<Order>, // Buy/Long orders sorted by price (highest first)
   asks: vector<Order>, // Sell/Short orders sorted by price (lowest first)
@@ -147,14 +147,6 @@ public fun get_locked_balance(
   };
 
   total_locked
-}
-
-public fun destroy(orderbook: OrderBook) {
-  let OrderBook { id, bids, asks, positions } = orderbook;
-  object::delete(id);
-  vector::destroy_empty(bids);
-  vector::destroy_empty(asks);
-  vector::destroy_empty(positions);
 }
 
 // public fun place_limit_order(
