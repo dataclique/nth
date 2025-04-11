@@ -53,7 +53,6 @@ fun test_place_bid_order() {
     orderbook::place_limit_order(
       &mut orderbook,
       &mut margin_account,
-      margin_account_id,
       true,
       100,
       10,
@@ -70,10 +69,6 @@ fun test_place_bid_order() {
     assert!(orderbook::get_order_price(order) == 100, 4);
     assert!(orderbook::get_order_size(order) == 10, 5);
     assert!(orderbook::get_order_filled_size(order) == 0, 6);
-    assert!(
-      orderbook::get_order_status(order) == orderbook::get_open_status(),
-      7,
-    );
 
     // Verify all balance is locked
     let available_balance = orderbook::get_available_balance(
@@ -103,7 +98,6 @@ fun test_place_order_low_deposit() {
     orderbook::place_limit_order(
       &mut orderbook,
       &mut margin_account,
-      margin_account_id,
       true,
       100,
       10,
@@ -113,5 +107,143 @@ fun test_place_order_low_deposit() {
     transfer::public_transfer(margin_account, alice);
     transfer::public_transfer(orderbook, alice);
   };
+  end(test);
+}
+
+#[test]
+fun test_cancel_order_multiple_users() {
+  let mut test = begin(@0xF);
+  let alice = @0xA;
+  let bob = @0xB;
+
+  test.next_tx(alice);
+  {
+    let usdc_coin = mint_for_testing<USDC>(2000, test.ctx());
+    let mut margin_account_alice = strike::new_with_deposit(
+      usdc_coin,
+      test.ctx(),
+    );
+    let mut orderbook = orderbook::empty(test.ctx());
+
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_alice,
+      true,
+      100,
+      10,
+      test.ctx(),
+    );
+
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_alice,
+      true,
+      90,
+      5,
+      test.ctx(),
+    );
+
+    assert!(orderbook::get_bids_length(&orderbook) == 2, 1);
+
+    transfer::public_transfer(orderbook, bob);
+    transfer::public_transfer(margin_account_alice, alice);
+  };
+
+  test.next_tx(bob);
+  {
+    let usdc_coin = mint_for_testing<USDC>(1000, test.ctx());
+    let mut margin_account_bob = strike::new_with_deposit(
+      usdc_coin,
+      test.ctx(),
+    );
+    let mut orderbook = test.take_from_address<OrderBook>(bob);
+
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_bob,
+      true,
+      80,
+      8,
+      test.ctx(),
+    );
+
+    assert!(orderbook::get_bids_length(&orderbook) == 3, 2);
+
+    transfer::public_transfer(orderbook, alice);
+    transfer::public_transfer(margin_account_bob, bob);
+  };
+
+  test.next_tx(alice);
+  {
+    let mut orderbook = test.take_from_address<OrderBook>(alice);
+    let margin_account_alice = test.take_from_address<MarginAccount>(alice);
+
+    // Cancel Alice's first order (price 100)
+    orderbook::cancel_order(
+      &mut orderbook,
+      &margin_account_alice,
+      true,
+      100,
+      test.ctx(),
+    );
+
+    assert!(orderbook::get_bids_length(&orderbook) == 2, 3);
+
+    transfer::public_transfer(orderbook, alice);
+    transfer::public_transfer(margin_account_alice, alice);
+  };
+
+  end(test);
+}
+
+#[test, expected_failure(abort_code = orderbook::EInvalidAccountOwner)]
+fun test_cancel_order_unauthorized() {
+  let mut test = begin(@0xF);
+  let alice = @0xA;
+  let bob = @0xB;
+
+  test.next_tx(alice);
+  {
+    let usdc_coin = mint_for_testing<USDC>(1000, test.ctx());
+    let mut margin_account_alice = strike::new_with_deposit(
+      usdc_coin,
+      test.ctx(),
+    );
+    let mut orderbook = orderbook::empty(test.ctx());
+
+    // Alice places an order
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_alice,
+      true,
+      100,
+      10,
+      test.ctx(),
+    );
+
+    assert!(orderbook::get_bids_length(&orderbook) == 1, 1);
+
+    transfer::public_transfer(orderbook, bob);
+    transfer::public_transfer(margin_account_alice, alice);
+  };
+
+  test.next_tx(bob);
+  {
+    let margin_account_alice = test.take_from_address<MarginAccount>(alice);
+    let mut orderbook = test.take_from_address<OrderBook>(bob);
+
+    // Bob tries to cancel Alice's order (should fail)
+    orderbook::cancel_order(
+      &mut orderbook,
+      &margin_account_alice,
+      true,
+      100,
+      test.ctx(),
+    );
+
+    transfer::public_transfer(orderbook, alice);
+    transfer::public_transfer(margin_account_alice, alice);
+  };
+
   end(test);
 }

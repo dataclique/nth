@@ -106,6 +106,7 @@ public fun withdraw(
   amount: u64,
   ctx: &mut TxContext,
 ): Coin<USDC> {
+  // TODO: add check of placed orders before withdraw
   // Verify that the sender is the owner of the margin account
   assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
 
