@@ -91,7 +91,6 @@ fun test_place_order_low_deposit() {
   {
     let usdc_coin = mint_for_testing<USDC>(500, test.ctx());
     let mut margin_account = strike::new_with_deposit(usdc_coin, test.ctx());
-    let margin_account_id = object::id(&margin_account);
     let mut orderbook = orderbook::empty(test.ctx());
 
     // Try to place order for 100*10 = 1000 and took error balance too low
@@ -145,6 +144,13 @@ fun test_cancel_order_multiple_users() {
 
     assert!(orderbook::get_bids_length(&orderbook) == 2, 1);
 
+    let alice_balance_after_place_order = 2000 - 100 * 10 - 90 * 5;
+    let available_balance = orderbook::get_available_balance(
+      &orderbook,
+      &margin_account_alice,
+    );
+    assert!(available_balance == alice_balance_after_place_order, 2);
+
     transfer::public_transfer(orderbook, bob);
     transfer::public_transfer(margin_account_alice, alice);
   };
@@ -188,6 +194,13 @@ fun test_cancel_order_multiple_users() {
     );
 
     assert!(orderbook::get_bids_length(&orderbook) == 2, 3);
+
+    let alice_balance_after_cancel_order = 2000 - 90 * 5;
+    let available_balance = orderbook::get_available_balance(
+      &orderbook,
+      &margin_account_alice,
+    );
+    assert!(available_balance == alice_balance_after_cancel_order, 4);
 
     transfer::public_transfer(orderbook, alice);
     transfer::public_transfer(margin_account_alice, alice);
