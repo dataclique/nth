@@ -138,3 +138,38 @@ public fun balance(margin_account: &MarginAccount): u64 {
 public fun owner(margin_account: &MarginAccount): address {
   margin_account.owner
 }
+
+/// Transfer USDC from one margin account to another when orders match
+/// Only the owner of the source margin account can initiate the transfer
+public fun transfer_on_match(
+  from_account: &mut MarginAccount,
+  to_account: &mut MarginAccount,
+  amount: u64,
+  ctx: &mut TxContext,
+) {
+  // Verify that the sender is the owner of the source account
+  assert!(tx_context::sender(ctx) == from_account.owner, ENotOwner);
+
+  // Verify that the source account has enough balance
+  assert!(
+    balance::value(&from_account.balance) >= amount,
+    EInsufficientBalance,
+  );
+
+  // Split the balance from source account
+  let transfer_balance = balance::split(&mut from_account.balance, amount);
+
+  // Add the balance to destination account
+  balance::join(&mut to_account.balance, transfer_balance);
+
+  // Emit events for both accounts
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&from_account.id),
+    kind: MarginAccountEventKind::Withdrawal { amount },
+  });
+
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&to_account.id),
+    kind: MarginAccountEventKind::Deposit { amount },
+  });
+}

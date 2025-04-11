@@ -163,24 +163,35 @@ public fun place_limit_order(
 
   assert!(available_balance >= required_amount, EInsufficientBalance);
 
-  let order = Order {
-    margin_account_id,
+  // First try to match against existing orders
+  let remaining_size = match_against_book(
+    orderbook,
+    margin_account,
     is_bid,
-    order_type: LIMIT,
     price,
     size,
-    filled_size: 0,
-  };
+    ctx,
+  );
 
-  if (is_bid) {
-    vector::push_back(&mut orderbook.bids, order);
-    // sort_bids(&mut orderbook.bids);
-  } else {
-    vector::push_back(&mut orderbook.asks, order);
-    // sort_asks(&mut orderbook.asks);
-  };
+  // If there's any remaining size, add the order to the book
+  if (remaining_size > 0) {
+    let order = Order {
+      margin_account_id,
+      is_bid,
+      order_type: LIMIT,
+      price,
+      size: remaining_size,
+      filled_size: size - remaining_size,
+    };
 
-  // TODO: match_order function
+    if (is_bid) {
+      vector::push_back(&mut orderbook.bids, order);
+      sort_bids(&mut orderbook.bids);
+    } else {
+      vector::push_back(&mut orderbook.asks, order);
+      sort_asks(&mut orderbook.asks);
+    };
+  };
 
   event::emit(OrderCreated {
     margin_account_id,
@@ -486,86 +497,57 @@ public fun cancel_order(
 //   };
 // }
 
-// fun sort_bids(bids: &mut vector<Order>) {
-//   let mut i = 0;
-//   let len = vector::length(bids);
-//   while (i < len) {
-//     let mut j = i + 1;
-//     while (j < len) {
-//       let order_i = vector::borrow(bids, i);
-//       let order_j = vector::borrow(bids, j);
-//       if (order_j.price > order_i.price) {
-//         vector::swap(bids, i, j);
-//       };
-//       j = j + 1;
-//     };
-//     i = i + 1;
-//   };
-// }
+fun sort_bids(bids: &mut vector<Order>) {
+  let mut i = 0;
+  let len = vector::length(bids);
+  while (i < len) {
+    let mut j = i + 1;
+    while (j < len) {
+      let order_i = vector::borrow(bids, i);
+      let order_j = vector::borrow(bids, j);
+      if (order_j.price > order_i.price) {
+        vector::swap(bids, i, j);
+      };
+      j = j + 1;
+    };
+    i = i + 1;
+  };
+}
 
-// fun sort_asks(asks: &mut vector<Order>) {
-//   let mut i = 0;
-//   let len = vector::length(asks);
-//   while (i < len) {
-//     let mut j = i + 1;
-//     while (j < len) {
-//       let order_i = vector::borrow(asks, i);
-//       let order_j = vector::borrow(asks, j);
-//       if (order_j.price < order_i.price) {
-//         vector::swap(asks, i, j);
-//       };
-//       j = j + 1;
-//     };
-//     i = i + 1;
-//   };
-// }
+fun sort_asks(asks: &mut vector<Order>) {
+  let mut i = 0;
+  let len = vector::length(asks);
+  while (i < len) {
+    let mut j = i + 1;
+    while (j < len) {
+      let order_i = vector::borrow(asks, i);
+      let order_j = vector::borrow(asks, j);
+      if (order_j.price < order_i.price) {
+        vector::swap(asks, i, j);
+      };
+      j = j + 1;
+    };
+    i = i + 1;
+  };
+}
 
-// // Function to unlock a balance
-// fun unlock_balance(orderbook: &mut OrderBook, owner: address, amount: u64) {
-//   let mut i = 0;
-//   let len = vector::length(&orderbook.locked_balances);
+public fun get_best_bid(orderbook: &OrderBook): (u64, u64) {
+  if (vector::is_empty(&orderbook.bids)) {
+    (0, 0)
+  } else {
+    let best_bid = vector::borrow(&orderbook.bids, 0);
+    (best_bid.price, best_bid.size)
+  }
+}
 
-//   while (i < len) {
-//     let locked_balance = vector::borrow_mut(&mut orderbook.locked_balances, i);
-//     if (locked_balance.owner == owner) {
-//       assert!(locked_balance.amount >= amount, EInsufficientLockedBalance);
-//       locked_balance.amount = locked_balance.amount - amount;
-
-//       // Remove the entry if the locked balance is zero
-//       if (locked_balance.amount == 0) {
-//         let removed_balance = vector::remove(&mut orderbook.locked_balances, i);
-//         // Use the removed balance to satisfy the compiler
-//         let LockedBalance { owner: removed_owner, amount: removed_amount } =
-//           removed_balance;
-//         assert!(
-//           removed_owner == owner && removed_amount == 0,
-//           EInvalidOrderState,
-//         );
-//       };
-//       break
-//     };
-//     i = i + 1;
-//   };
-// }
-
-// // View functions
-// public fun get_best_bid(orderbook: &OrderBook): (u64, u64) {
-//   if (vector::is_empty(&orderbook.bids)) {
-//     (0, 0)
-//   } else {
-//     let best_bid = vector::borrow(&orderbook.bids, 0);
-//     (best_bid.price, best_bid.size)
-//   }
-// }
-
-// public fun get_best_ask(orderbook: &OrderBook): (u64, u64) {
-//   if (vector::is_empty(&orderbook.asks)) {
-//     (0, 0)
-//   } else {
-//     let best_ask = vector::borrow(&orderbook.asks, 0);
-//     (best_ask.price, best_ask.size)
-//   }
-// }
+public fun get_best_ask(orderbook: &OrderBook): (u64, u64) {
+  if (vector::is_empty(&orderbook.asks)) {
+    (0, 0)
+  } else {
+    let best_ask = vector::borrow(&orderbook.asks, 0);
+    (best_ask.price, best_ask.size)
+  }
+}
 
 // public fun get_position(
 //   orderbook: &OrderBook,
@@ -595,6 +577,10 @@ public fun get_bids_length(orderbook: &OrderBook): u64 {
   vector::length(&orderbook.bids)
 }
 
+public fun get_asks_length(orderbook: &OrderBook): u64 {
+  vector::length(&orderbook.asks)
+}
+
 public fun get_bid(orderbook: &OrderBook, index: u64): &Order {
   vector::borrow(&orderbook.bids, index)
 }
@@ -617,4 +603,96 @@ public fun get_order_size(order: &Order): u64 {
 
 public fun get_order_filled_size(order: &Order): u64 {
   order.filled_size
+}
+
+public fun match_against_book(
+  orderbook: &mut OrderBook,
+  taker_margin_account: &mut MarginAccount,
+  is_bid: bool,
+  price: u64,
+  size: u64,
+  ctx: &mut TxContext,
+): u64 {
+  let mut remaining_size = size;
+  let taker_margin_account_id = object::id(taker_margin_account);
+
+  while (remaining_size > 0) {
+    // Get the current best order price and size
+    let (best_price, best_size, maker_margin_account_id) = if (is_bid) {
+      if (vector::is_empty(&orderbook.asks)) {
+        break
+      };
+      let best_ask = vector::borrow(&orderbook.asks, 0);
+      (best_ask.price, best_ask.size, best_ask.margin_account_id)
+    } else {
+      if (vector::is_empty(&orderbook.bids)) {
+        break
+      };
+      let best_bid = vector::borrow(&orderbook.bids, 0);
+      (best_bid.price, best_bid.size, best_bid.margin_account_id)
+    };
+
+    if ((is_bid && price < best_price) || (!is_bid && price > best_price)) {
+      break
+    };
+
+    let match_size = if (remaining_size >= best_size) {
+      best_size
+    } else {
+      remaining_size
+    };
+
+    let transfer_amount = best_price * match_size;
+
+    // Perform the transfer
+    if (is_bid) {
+      let transfer_coin = strike::withdraw(
+        taker_margin_account,
+        transfer_amount,
+        ctx,
+      );
+      strike::deposit(taker_margin_account, transfer_coin, ctx);
+    } else {
+      let transfer_coin = strike::withdraw(
+        taker_margin_account,
+        transfer_amount,
+        ctx,
+      );
+      strike::deposit(taker_margin_account, transfer_coin, ctx);
+    };
+
+    // Update the order
+    if (is_bid) {
+      let order = vector::borrow_mut(&mut orderbook.asks, 0);
+      order.filled_size = order.filled_size + match_size;
+      order.size = order.size - match_size;
+
+      // If the order is fully filled, remove it
+      if (order.size == 0) {
+        vector::remove(&mut orderbook.asks, 0);
+      };
+    } else {
+      let order = vector::borrow_mut(&mut orderbook.bids, 0);
+      order.filled_size = order.filled_size + match_size;
+      order.size = order.size - match_size;
+
+      // If the order is fully filled, remove it
+      if (order.size == 0) {
+        vector::remove(&mut orderbook.bids, 0);
+      };
+    };
+
+    // Update the taker's remaining size
+    remaining_size = remaining_size - match_size;
+
+    // Emit match event
+    event::emit(OrderMatched {
+      maker_margin_account_id,
+      taker_margin_account_id,
+      price: best_price,
+      size: match_size,
+    });
+  };
+
+  remaining_size
 }

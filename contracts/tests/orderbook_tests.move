@@ -260,3 +260,90 @@ fun test_cancel_order_unauthorized() {
 
   end(test);
 }
+
+#[test]
+fun test_order_matching_and_transfer() {
+  let mut test = begin(@0xF);
+  let alice = @0xA;
+  let bob = @0xB;
+
+  test.next_tx(alice);
+  {
+    // Alice creates a margin account and places an ask order
+    let usdc_coin = mint_for_testing<USDC>(1000, test.ctx());
+    let mut margin_account_alice = strike::new_with_deposit(
+      usdc_coin,
+      test.ctx(),
+    );
+    let mut orderbook = orderbook::empty(test.ctx());
+
+    // Alice places an ask order (sell) at price 100
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_alice,
+      false, // is_bid = false for ask
+      100, // price
+      10, // size
+      test.ctx(),
+    );
+
+    assert!(orderbook::get_asks_length(&orderbook) == 1, 1);
+    let alice_balance_after_place = 1000 - 100 * 10; // All balance locked for the order
+    assert!(
+      orderbook::get_available_balance(&orderbook, &margin_account_alice) == alice_balance_after_place,
+      2,
+    );
+
+    transfer::public_transfer(orderbook, bob);
+    transfer::public_transfer(margin_account_alice, alice);
+  };
+
+  test.next_tx(bob);
+  {
+    // Bob creates a margin account and places a bid order
+    let usdc_coin = mint_for_testing<USDC>(2000, test.ctx());
+    let mut margin_account_bob = strike::new_with_deposit(
+      usdc_coin,
+      test.ctx(),
+    );
+    let mut orderbook = test.take_from_address<OrderBook>(bob);
+    let margin_account_alice = test.take_from_address<MarginAccount>(alice);
+
+    // Bob places a bid order (buy) at price 100 that should match Alice's ask
+    orderbook::place_limit_order(
+      &mut orderbook,
+      &mut margin_account_bob,
+      true, // is_bid = true
+      100, // price
+      10, // size
+      test.ctx(),
+    );
+
+    // Verify the match
+    assert!(orderbook::get_asks_length(&orderbook) == 0, 3); // Alice's ask should be removed
+    assert!(orderbook::get_bids_length(&orderbook) == 0, 4); // Bob's bid should be removed
+
+    //  TODO: fix that we trading USDC for USDC price. LOL. So money will be the
+    // same after trade.
+    // Verify balances after transfer
+    // Alice should have her original balance plus the money from Bob
+    let alice_expected_balance = 1000;
+    assert!(
+      orderbook::get_available_balance(&orderbook, &margin_account_alice) == alice_expected_balance,
+      5,
+    );
+
+    // Bob should have his original balance minus the money he paid
+    let bob_expected_balance = 2000;
+    assert!(
+      orderbook::get_available_balance(&orderbook, &margin_account_bob) == bob_expected_balance,
+      6,
+    );
+
+    transfer::public_transfer(orderbook, alice);
+    transfer::public_transfer(margin_account_alice, alice);
+    transfer::public_transfer(margin_account_bob, bob);
+  };
+
+  end(test);
+}
