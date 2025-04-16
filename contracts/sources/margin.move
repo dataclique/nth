@@ -1,26 +1,29 @@
 module strike::strike;
 
+use sui::bag::{Self, Bag};
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::event;
-use usdc::usdc::USDC;
 
 // Error constants
 const ENotOwner: u64 = 1;
 const EInsufficientBalance: u64 = 2;
+
+/// Balance identifier.
+public struct BalanceKey<phantom T> has copy, drop, store {}
 
 // MarginAccount has key but not store, so only this module can transfer it
 // and we don't provide any transfer function, making it non-transferrable
 public struct MarginAccount has key, store {
   id: UID,
   owner: address,
-  balance: Balance<USDC>,
+  balances: Bag,
 }
 
 public enum MarginAccountEventKind has copy, drop {
   Creation,
   Deposit { amount: u64 },
-  Withdrawal { amount: u64 },
+  Withdrawal { withdraw_amount: u64 },
 }
 
 public struct MarginAccountEvent has copy, drop {
@@ -28,7 +31,6 @@ public struct MarginAccountEvent has copy, drop {
   kind: MarginAccountEventKind,
 }
 
-/// Create a new empty margin account
 public fun new(ctx: &mut TxContext): MarginAccount {
   let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
@@ -41,135 +43,92 @@ public fun new(ctx: &mut TxContext): MarginAccount {
   MarginAccount {
     id,
     owner: sender,
-    balance: balance::zero<USDC>(),
+    balances: bag::new(ctx),
   }
 }
 
-/// Create a new margin account with an initial deposit
-public fun new_with_deposit(
-  deposit: Coin<USDC>,
+public fun new_with_deposit<T>(
+  deposit: Coin<T>,
   ctx: &mut TxContext,
 ): MarginAccount {
   let sender = tx_context::sender(ctx);
   let id = object::new(ctx);
   let deposit_amount = coin::value(&deposit);
 
-  // Convert Coin to Balance
-  let deposit_balance = coin::into_balance(deposit);
+  let mut margin_account = MarginAccount {
+    id,
+    owner: sender,
+    balances: bag::new(ctx),
+  };
+
+  deposit(&mut margin_account, deposit);
 
   event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&id),
+    margin_account_id: object::uid_to_inner(&margin_account.id),
     kind: MarginAccountEventKind::Creation,
   });
 
-  // Also emit a deposit event
   event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&id),
+    margin_account_id: object::uid_to_inner(&margin_account.id),
     kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
   });
 
-  MarginAccount {
-    id,
-    owner: sender,
-    balance: deposit_balance,
+  margin_account
+}
+
+public fun deposit<T>(margin_account: &mut MarginAccount, coin: Coin<T>) {
+  // TODO: make verification of account owner
+
+  let deposit_amount = coin::value(&coin);
+  let deposit_balance = coin::into_balance(coin);
+  let key = BalanceKey<T> {};
+
+  if (margin_account.balances.contains(key)) {
+    let balance: &mut Balance<T> = &mut margin_account.balances[key];
+    balance.join(deposit_balance);
+  } else {
+    margin_account.balances.add(key, deposit_balance);
+  };
+
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&margin_account.id),
+    kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
+  });
+}
+
+public fun withdraw<T>(
+  margin_account: &mut MarginAccount,
+  withdraw_amount: u64,
+  ctx: &mut TxContext,
+): Balance<T> {
+  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
+
+  let key = BalanceKey<T> {};
+
+  let key_exists = margin_account.balances.contains(key);
+  assert!(key_exists, EInsufficientBalance);
+
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&margin_account.id),
+    kind: MarginAccountEventKind::Withdrawal { withdraw_amount },
+  });
+
+  let acc_balance: &mut Balance<T> = &mut margin_account.balances[key];
+  let acc_value = acc_balance.value();
+  assert!(acc_value >= withdraw_amount, EInsufficientBalance);
+  if (withdraw_amount == acc_value) {
+    margin_account.balances.remove(key)
+  } else {
+    acc_balance.split(withdraw_amount)
   }
 }
 
-/// Deposit USDC into a margin account
-/// Only the owner of the margin account can deposit
-public fun deposit(
-  margin_account: &mut MarginAccount,
-  coin: Coin<USDC>,
-  ctx: &mut TxContext,
-) {
-  // Verify that the sender is the owner of the margin account
-  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
-
-  // Get the deposit amount for the event
-  let deposit_amount = coin::value(&coin);
-
-  // Convert Coin to Balance and add it to the margin account's balance
-  let deposit_balance = coin::into_balance(coin);
-  balance::join(&mut margin_account.balance, deposit_balance);
-
-  // Emit deposit event
-  event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&margin_account.id),
-    kind: MarginAccountEventKind::Deposit { amount: deposit_amount },
-  });
+public fun balance<T>(margin_account: &MarginAccount): u64 {
+  let key = BalanceKey<T> {};
+  let balance: &Balance<T> = &margin_account.balances[key];
+  balance.value()
 }
 
-/// Withdraw USDC from a margin account
-/// Only the owner of the margin account can withdraw
-public fun withdraw(
-  margin_account: &mut MarginAccount,
-  amount: u64,
-  ctx: &mut TxContext,
-): Coin<USDC> {
-  // TODO: add check of placed orders before withdraw
-  // Verify that the sender is the owner of the margin account
-  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
-
-  // Verify that the margin account has enough balance
-  assert!(
-    balance::value(&margin_account.balance) >= amount,
-    EInsufficientBalance,
-  );
-
-  // Split the balance and convert to Coin
-  let withdraw_balance = balance::split(&mut margin_account.balance, amount);
-  let withdraw_coin = coin::from_balance(withdraw_balance, ctx);
-
-  // Emit withdrawal event
-  event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&margin_account.id),
-    kind: MarginAccountEventKind::Withdrawal { amount },
-  });
-
-  withdraw_coin
-}
-
-/// Get the current balance of the margin account
-public fun balance(margin_account: &MarginAccount): u64 {
-  balance::value(&margin_account.balance)
-}
-
-/// Get the owner of the margin account
 public fun owner(margin_account: &MarginAccount): address {
   margin_account.owner
-}
-
-/// Transfer USDC from one margin account to another when orders match
-/// Only the owner of the source margin account can initiate the transfer
-public fun transfer_on_match(
-  from_account: &mut MarginAccount,
-  to_account: &mut MarginAccount,
-  amount: u64,
-  ctx: &mut TxContext,
-) {
-  // Verify that the sender is the owner of the source account
-  assert!(tx_context::sender(ctx) == from_account.owner, ENotOwner);
-
-  // Verify that the source account has enough balance
-  assert!(
-    balance::value(&from_account.balance) >= amount,
-    EInsufficientBalance,
-  );
-
-  // Split the balance from source account
-  let transfer_balance = balance::split(&mut from_account.balance, amount);
-
-  // Add the balance to destination account
-  balance::join(&mut to_account.balance, transfer_balance);
-
-  // Emit events for both accounts
-  event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&from_account.id),
-    kind: MarginAccountEventKind::Withdrawal { amount },
-  });
-
-  event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&to_account.id),
-    kind: MarginAccountEventKind::Deposit { amount },
-  });
 }
