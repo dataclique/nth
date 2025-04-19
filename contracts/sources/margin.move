@@ -1,9 +1,9 @@
 module strike::strike;
 
-use sui::bag::{Self, Bag};
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::event;
+use usdc::usdc::USDC;
 
 // Error constants
 const ENotOwner: u64 = 1;
@@ -17,7 +17,7 @@ public struct BalanceKey<phantom T> has copy, drop, store {}
 public struct MarginAccount has key, store {
   id: UID,
   owner: address,
-  balances: Bag,
+  balance: Balance<USDC>,
 }
 
 public enum MarginAccountEventKind has copy, drop {
@@ -43,12 +43,12 @@ public fun new(ctx: &mut TxContext): MarginAccount {
   MarginAccount {
     id,
     owner: sender,
-    balances: bag::new(ctx),
+    balance: balance::zero<USDC>(),
   }
 }
 
-public fun new_with_deposit<T>(
-  deposit: Coin<T>,
+public fun new_with_deposit(
+  deposit: Coin<USDC>,
   ctx: &mut TxContext,
 ): MarginAccount {
   let sender = tx_context::sender(ctx);
@@ -58,7 +58,7 @@ public fun new_with_deposit<T>(
   let mut margin_account = MarginAccount {
     id,
     owner: sender,
-    balances: bag::new(ctx),
+    balance: balance::zero<USDC>(),
   };
 
   deposit(&mut margin_account, deposit);
@@ -76,19 +76,13 @@ public fun new_with_deposit<T>(
   margin_account
 }
 
-public fun deposit<T>(margin_account: &mut MarginAccount, coin: Coin<T>) {
+public fun deposit(margin_account: &mut MarginAccount, coin: Coin<USDC>) {
   // TODO: make verification of account owner
 
   let deposit_amount = coin::value(&coin);
   let deposit_balance = coin::into_balance(coin);
-  let key = BalanceKey<T> {};
 
-  if (margin_account.balances.contains(key)) {
-    let balance: &mut Balance<T> = &mut margin_account.balances[key];
-    balance.join(deposit_balance);
-  } else {
-    margin_account.balances.add(key, deposit_balance);
-  };
+  margin_account.balance.join(deposit_balance);
 
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&margin_account.id),
@@ -96,37 +90,33 @@ public fun deposit<T>(margin_account: &mut MarginAccount, coin: Coin<T>) {
   });
 }
 
-public fun withdraw<T>(
+public fun withdraw(
   margin_account: &mut MarginAccount,
   withdraw_amount: u64,
   ctx: &mut TxContext,
-): Balance<T> {
+): Coin<USDC> {
   assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
+  assert!(
+    balance::value(&margin_account.balance) >= withdraw_amount,
+    EInsufficientBalance,
+  );
 
-  let key = BalanceKey<T> {};
-
-  let key_exists = margin_account.balances.contains(key);
-  assert!(key_exists, EInsufficientBalance);
+  let withdraw_balance = balance::split(
+    &mut margin_account.balance,
+    withdraw_amount,
+  );
+  let withdraw_coin = coin::from_balance(withdraw_balance, ctx);
 
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&margin_account.id),
     kind: MarginAccountEventKind::Withdrawal { withdraw_amount },
   });
 
-  let acc_balance: &mut Balance<T> = &mut margin_account.balances[key];
-  let acc_value = acc_balance.value();
-  assert!(acc_value >= withdraw_amount, EInsufficientBalance);
-  if (withdraw_amount == acc_value) {
-    margin_account.balances.remove(key)
-  } else {
-    acc_balance.split(withdraw_amount)
-  }
+  withdraw_coin
 }
 
-public fun balance<T>(margin_account: &MarginAccount): u64 {
-  let key = BalanceKey<T> {};
-  let balance: &Balance<T> = &margin_account.balances[key];
-  balance.value()
+public fun balance(margin_account: &MarginAccount): u64 {
+  balance::value(&margin_account.balance)
 }
 
 public fun owner(margin_account: &MarginAccount): address {

@@ -3,7 +3,6 @@ module strike::order;
 public struct Order has copy, drop, store {
   margin_account_id: ID,
   is_bid: bool,
-  order_type: u8,
   price: u64,
   size: u64,
   filled_size: u64,
@@ -13,7 +12,6 @@ public struct Order has copy, drop, store {
 public struct OrderCreated has copy, drop {
   margin_account_id: ID,
   is_bid: bool,
-  order_type: u8,
   price: u64,
   size: u64,
 }
@@ -21,8 +19,26 @@ public struct OrderCreated has copy, drop {
 public struct OrderCanceled has copy, drop {
   margin_account_id: ID,
   is_bid: bool,
-  order_type: u8,
   price: u64,
+}
+
+public fun new(
+  margin_account_id: ID,
+  is_bid: bool,
+  price: u64,
+  size: u64,
+): Order {
+  Order {
+    margin_account_id,
+    is_bid,
+    price,
+    size,
+    filled_size: 0,
+  }
+}
+
+public fun margin_account_id(order: &Order): ID {
+  order.margin_account_id
 }
 
 public fun price(order: &Order): u64 {
@@ -39,4 +55,8 @@ public fun is_bid(order: &Order): bool {
 
 public fun filled_size(order: &Order): u64 {
   order.filled_size
+}
+
+public fun set_filled_size(order: &mut Order, filled_size: u64) {
+  order.filled_size = filled_size;
 }
