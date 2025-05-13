@@ -16,6 +16,7 @@ fun test_margin_account_creation() {
     assert!(margin_account.owner() == alice, 0);
     margin_account.deposit(
       mint_for_testing<USDC>(100, test.ctx()),
+      test.ctx(),
     );
 
     let balance = margin_account.balance();
@@ -23,6 +24,7 @@ fun test_margin_account_creation() {
 
     margin_account.deposit(
       mint_for_testing<USDC>(100, test.ctx()),
+      test.ctx(),
     );
     let balance = margin_account.balance();
     assert!(balance == 200, 0);
@@ -42,6 +44,7 @@ fun test_withdraw_ok() {
     let mut margin_account = strike::new(test.ctx());
     margin_account.deposit(
       mint_for_testing<USDC>(100, test.ctx()),
+      test.ctx(),
     );
 
     let balance = margin_account.balance();

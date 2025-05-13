@@ -61,7 +61,7 @@ public fun new_with_deposit(
     balance: balance::zero<USDC>(),
   };
 
-  deposit(&mut margin_account, deposit);
+  deposit(&mut margin_account, deposit, ctx);
 
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&margin_account.id),
@@ -76,9 +76,12 @@ public fun new_with_deposit(
   margin_account
 }
 
-public fun deposit(margin_account: &mut MarginAccount, coin: Coin<USDC>) {
-  // TODO: make verification of account owner
-
+public fun deposit(
+  margin_account: &mut MarginAccount,
+  coin: Coin<USDC>,
+  ctx: &mut TxContext,
+) {
+  assert!(verify_owner(margin_account, tx_context::sender(ctx)), ENotOwner);
   let deposit_amount = coin::value(&coin);
   let deposit_balance = coin::into_balance(coin);
 
@@ -95,7 +98,7 @@ public fun withdraw(
   withdraw_amount: u64,
   ctx: &mut TxContext,
 ): Coin<USDC> {
-  assert!(tx_context::sender(ctx) == margin_account.owner, ENotOwner);
+  assert!(verify_owner(margin_account, tx_context::sender(ctx)), ENotOwner);
   assert!(
     balance::value(&margin_account.balance) >= withdraw_amount,
     EInsufficientBalance,
@@ -121,4 +124,8 @@ public fun balance(margin_account: &MarginAccount): u64 {
 
 public fun owner(margin_account: &MarginAccount): address {
   margin_account.owner
+}
+
+public fun verify_owner(margin_account: &MarginAccount, sender: address): bool {
+  margin_account.owner == sender
 }

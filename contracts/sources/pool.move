@@ -1,157 +1,254 @@
-// module strike::pool;
+module strike::pool;
 
-// use strike::order::{Self, Order};
-// use strike::orderbook::{Self, OrderBook};
-// use strike::strike::{Self, MarginAccount};
-// use strike::vault::{Self, Vault};
-// use sui::balance::{Self, Balance};
-// use sui::coin::{Self as CoinModule, Coin};
-// use sui::event;
-// use sui::object::{Self, ID, UID};
-// use sui::tx_context::{Self, TxContext};
-// use usdc::usdc::USDC;
+use strike::oracle::{Self, Oracle};
+use strike::order;
+use strike::orderbook::{Self, OrderBook};
+use strike::strike::{Self, MarginAccount};
+use strike::vault::{Self, Vault};
+use sui::event;
 
-// // Error constants
-// const EInsufficientBalance: u64 = 1;
-// const EInvalidPrice: u64 = 2;
-// const EInvalidQuantity: u64 = 3;
-// const EInvalidAccountOwner: u64 = 4;
+// Error constants
+const EInsufficientBalance: u64 = 1;
+const EInvalidPrice: u64 = 2;
+const EInvalidQuantity: u64 = 3;
+const EInvalidAccountOwner: u64 = 4;
+const EInvalidLeverage: u64 = 5;
 
-// /// Pool holds the vault and orderbook for a trading pair
-// public struct Pool<phantom BaseAsset, phantom QuoteAsset> has key, store {
-//   id: UID,
-//   vault: Vault<BaseAsset, QuoteAsset>,
-//   orderbook: OrderBook,
-// }
+/// Pool holds the vault, orderbook, and oracle for a trading pair
+public struct Pool has key, store {
+  id: UID,
+  vault: Vault,
+  orderbook: OrderBook,
+  oracle: Oracle,
+  maintenance_margin: u64,
+  funding_rate: u64,
+  last_funding_time: u64,
+}
 
-// /// Events
-// public struct PoolCreated has copy, drop {
-//   pool_id: ID,
-// }
+/// Events
+public struct PoolCreated has copy, drop {
+  pool_id: ID,
+}
 
-// public struct PoolDepositedBase has copy, drop {
-//   pool_id: ID,
-//   base_amount: u64,
-// }
+public struct PositionOpened has copy, drop {
+  pool_id: ID,
+  margin_account_id: ID,
+  is_bid: bool,
+  price: u64,
+  size: u64,
+  leverage: u64,
+  margin: u64,
+}
 
-// public struct PoolDepositedQuote has copy, drop {
-//   pool_id: ID,
-//   quote_amount: u64,
-// }
+public struct PositionClosed has copy, drop {
+  pool_id: ID,
+  margin_account_id: ID,
+  price: u64,
+  is_bid: bool,
+}
 
-// public fun new<BaseAsset, QuoteAsset>(
-//   ctx: &mut TxContext,
-// ): Pool<BaseAsset, QuoteAsset> {
-//   let id = object::new(ctx);
-//   let vault = vault::empty();
-//   let orderbook = orderbook::empty(ctx);
+public fun new(maintenance_margin: u64, ctx: &mut TxContext): Pool {
+  let id = object::new(ctx);
+  let vault = vault::empty(ctx);
+  let orderbook = orderbook::empty(ctx);
+  let oracle = oracle::new(ctx);
 
-//   event::emit(PoolCreated {
-//     pool_id: object::uid_to_inner(&id),
-//   });
+  event::emit(PoolCreated {
+    pool_id: object::uid_to_inner(&id),
+  });
 
-//   Pool {
-//     id,
-//     vault,
-//     orderbook,
-//   }
-// }
+  Pool {
+    id,
+    vault,
+    orderbook,
+    oracle,
+    maintenance_margin,
+    funding_rate: 0,
+    last_funding_time: 0,
+  }
+}
 
-// public fun vault(self: &Pool): &Vault {
-//   &self.vault
-// }
+#[test_only]
+public fun get_orderbook(pool: &Pool): &OrderBook {
+  &pool.orderbook
+}
 
-// public fun deposit(self: &mut Pool, coin: Coin<USDC>) {
-//   vault::deposit(&mut self.vault, coin);
+#[test_only]
+public fun get_vault(pool: &Pool): &Vault {
+  &pool.vault
+}
 
-//   event::emit(PoolDepositedBase {
-//     pool_id: object::uid_to_inner(&self.id),
-//     base_amount: CoinModule::value(&base_coin),
-//   });
-// }
+public fun place_leveraged_order(
+  pool: &mut Pool,
+  margin_account: &mut MarginAccount,
+  is_bid: bool,
+  price: u64,
+  size: u64,
+  leverage: u64,
+  ctx: &mut TxContext,
+) {
+  let sender = tx_context::sender(ctx);
+  assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
+  assert!(price > 0, EInvalidPrice);
+  assert!(size > 0, EInvalidQuantity);
+  assert!(leverage > 0 && leverage <= 100, EInvalidLeverage);
 
-// public fun deposit_quote<BaseAsset, QuoteAsset>(
-//   self: &mut Pool<BaseAsset, QuoteAsset>,
-//   quote_coin: Coin<QuoteAsset>,
-// ) {
-//   vault::deposit(&mut self.vault, quote_coin);
+  // Calculate required margin with fees
+  let required_margin = (price * size) / leverage;
+  let available_balance = margin_account.balance();
+  assert!(available_balance >= required_margin, EInsufficientBalance);
 
-//   event::emit(PoolDepositedQuote {
-//     pool_id: object::uid_to_inner(&self.id),
-//     quote_amount: CoinModule::value(&quote_coin),
-//   });
-// }
+  // Transfer funds to vault
+  let balance = strike::withdraw(
+    margin_account,
+    required_margin,
+    ctx,
+  );
+  vault::deposit(&mut pool.vault, balance);
 
-// public fun balance(self: &Pool): u64 {
-//   vault::balance(&self.vault)
-// }
+  // Create and place order
+  let order = order::new(
+    object::id(margin_account),
+    is_bid,
+    price,
+    size,
+    leverage,
+    required_margin,
+    ctx,
+  );
 
-// public fun place_limit_order<BaseAsset, QuoteAsset>(
-//   self: &mut Pool<BaseAsset, QuoteAsset>,
-//   margin_account: &mut MarginAccount,
-//   order: Order,
-//   ctx: &mut TxContext,
-// ) {
-//   let sender = tx_context::sender(ctx);
-//   assert!(order.price() > 0, EInvalidPrice);
-//   assert!(order.size() > 0, EInvalidQuantity);
-//   assert!(sender == margin_account.owner(), EInvalidAccountOwner);
-//   let required_amount = order.price()*order.size();
+  orderbook::place_limit_order(
+    &mut pool.orderbook,
+    margin_account,
+    order,
+  );
 
-//   if (order.is_bid()) {
-//     let available_balance = margin_account.balance();
-//     assert!(available_balance >= required_amount, EInsufficientBalance);
+  event::emit(PositionOpened {
+    pool_id: object::uid_to_inner(&pool.id),
+    margin_account_id: object::id(margin_account),
+    is_bid,
+    price,
+    size,
+    leverage,
+    margin: required_margin,
+  });
+}
 
-//     let balance: Coin<USDC> = strike::withdraw(
-//       margin_account,
-//       required_amount,
-//       ctx,
-//     );
-//     vault::deposit(&mut self.vault, balance);
-//   } else {
-//     let available_balance = margin_account.balance();
-//     assert!(available_balance >= required_amount, EInsufficientBalance);
+// TODO: make funding rate payouts
+// public fun update_funding_rates(pool: &mut Pool, ctx: &mut TxContext) {
+//   let current_time = tx_context::epoch_timestamp_ms(ctx);
+//   let current_price = oracle::get_price(&pool.oracle);
 
-//     let balance: Coin<USDC> = strike::withdraw(
-//       margin_account,
-//       required_amount,
-//       ctx,
-//     );
-//     vault::deposit(&mut self.vault, balance);
+//   // Calculate time elapsed since last funding
+//   let time_elapsed = current_time - pool.last_funding_time;
+//   if (time_elapsed < 3600000) {
+//     // 1 hour in milliseconds
+//     return
 //   };
 
-//   orderbook::place_limit_order(
-//     &mut self.orderbook,
-//     margin_account,
-//     order,
-//     ctx,
-//   );
+//   // Update funding rate based on price difference
+//   let price_diff = if (current_price > pool.last_funding_time) {
+//     current_price - pool.last_funding_time
+//   } else {
+//     pool.last_funding_time - current_price
+//   };
+
+//   pool.funding_rate = (price_diff * 100) / current_price; // 1% per hour
+//   pool.last_funding_time = current_time;
+
+//   // Update all positions with new funding rate
+//   let bids = &mut pool.orderbook.bids;
+//   let asks = &mut pool.orderbook.asks;
+
+//   // Update bid positions
+//   let i = 0;
+//   let len = vector::length(bids);
+//   while (i < len) {
+//     let bid = vector::borrow_mut(bids, i);
+//     let funding_amount = (bid.margin() * pool.funding_rate) / 100;
+//     bid.update_margin(bid.margin() - funding_amount);
+//     i = i + 1;
+//   };
+
+//   // Update ask positions
+//   let i = 0;
+//   let len = vector::length(asks);
+//   while (i < len) {
+//     let ask = vector::borrow_mut(asks, i);
+//     let funding_amount = (ask.margin() * pool.funding_rate) / 100;
+//     ask.update_margin(ask.margin() - funding_amount);
+//     i = i + 1;
+//   };
 // }
 
-// public fun cancel_order<BaseAsset, QuoteAsset>(
-//   self: &mut Pool<BaseAsset, QuoteAsset>,
-//   margin_account: &MarginAccount,
-//   is_bid: bool,
-//   price: u64,
-//   ctx: &mut TxContext,
-// ) {
-//   orderbook::cancel_order(
-//     &mut self.orderbook,
-//     margin_account,
-//     is_bid,
-//     price,
-//     ctx,
-//   );
-// }
+public fun close_position(
+  pool: &mut Pool,
+  margin_account: &mut MarginAccount,
+  price: u64,
+  is_bid: bool,
+  ctx: &mut TxContext,
+) {
+  let sender = tx_context::sender(ctx);
+  assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
 
-// public fun get_best_bid<BaseAsset, QuoteAsset>(
-//   self: &Pool<BaseAsset, QuoteAsset>,
-// ): (u64, u64) {
-//   orderbook::get_best_bid(&self.orderbook)
-// }
+  let amount_to_withdraw = orderbook::cancel_order(
+    &mut pool.orderbook,
+    margin_account,
+    is_bid,
+    price,
+    ctx,
+  );
 
-// public fun get_best_ask<BaseAsset, QuoteAsset>(
-//   self: &Pool<BaseAsset, QuoteAsset>,
-// ): (u64, u64) {
-//   orderbook::get_best_ask(&self.orderbook)
+  let balance = vault::withdraw(
+    &mut pool.vault,
+    amount_to_withdraw,
+    ctx,
+  );
+
+  strike::deposit(margin_account, balance, ctx);
+
+  event::emit(PositionClosed {
+    pool_id: object::uid_to_inner(&pool.id),
+    margin_account_id: object::id(margin_account),
+    price,
+    is_bid,
+  });
+}
+
+// public fun check_liquidations(pool: &mut Pool, ctx: &mut TxContext) {
+//   let current_price = oracle::get_price(&pool.oracle);
+
+//   // Check bid positions
+//   let i = 0;
+//   let len = vector::length(&pool.orderbook.bids);
+//   while (i < len) {
+//     let bid = vector::borrow(&pool.orderbook.bids, i);
+//     if (bid.margin() < pool.maintenance_margin) {
+//       // Liquidate position
+//       let margin_account = object::borrow_global<
+//         MarginAccount,
+//       >(bid.margin_account_id());
+//       margin_account::remove_position(margin_account, bid.id());
+//       vector::remove(&mut pool.orderbook.bids, i);
+//     } else {
+//       i = i + 1;
+//     };
+//   };
+
+//   // Check ask positions
+//   let i = 0;
+//   let len = vector::length(&pool.orderbook.asks);
+//   while (i < len) {
+//     let ask = vector::borrow(&pool.orderbook.asks, i);
+//     if (ask.margin() < pool.maintenance_margin) {
+//       // Liquidate position
+//       let margin_account = object::borrow_global<
+//         MarginAccount,
+//       >(ask.margin_account_id());
+//       margin_account::remove_position(margin_account, ask.id());
+//       vector::remove(&mut pool.orderbook.asks, i);
+//     } else {
+//       i = i + 1;
+//     };
+//   };
 // }
