@@ -27,6 +27,13 @@ public struct OrderCanceled has copy, drop {
   price: u64,
 }
 
+public struct PositionLiquidated has copy, drop {
+  pool_id: object::ID,
+  margin_account_id: object::ID,
+  price: u64,
+  is_bid: bool,
+}
+
 public(package) fun empty(ctx: &mut TxContext): OrderBook {
   OrderBook {
     id: object::new(ctx),
@@ -292,5 +299,89 @@ public fun get_ask(orderbook: &OrderBook, index: u64): &Order {
 //   debug::print(&b"Final remaining size: ");
 //   debug::print(&remaining_size);
 
-//   remaining_size
-// }
+// Liquidate bid order if margin percentage level is below maintenance margin
+// percentage
+public(package) fun check_and_remove_liquidated_bid(
+  orderbook: &mut OrderBook,
+  maintenance_margin_percentage: u64,
+  current_price: u64,
+  pool_id: object::ID,
+): bool {
+  let bids = &mut orderbook.bids;
+  let len = vector::length(bids);
+  let mut i = 0;
+  while (i < len) {
+    let bid = vector::borrow(bids, i);
+
+    // NO NEGATIVE NUMBERS IN SUI MOVE, CMON
+    if (bid.price() < current_price) {
+      return false
+    };
+
+    let avaible_margin =
+      bid.margin() - (bid.price()*bid.size() - current_price*bid.size());
+
+    let margin_percentage_level =
+      (avaible_margin * 100) / (current_price*bid.size());
+
+    if (margin_percentage_level < maintenance_margin_percentage) {
+      let margin_account_id = bid.margin_account_id();
+      let price = bid.price();
+      vector::remove(bids, i);
+
+      std::debug::print(&b"Liquidated bid order: ");
+      std::debug::print(&price);
+      std::debug::print(&b" with margin: ");
+      std::debug::print(&avaible_margin);
+
+      event::emit(PositionLiquidated {
+        pool_id,
+        margin_account_id,
+        price,
+        is_bid: true,
+      });
+      return true
+    };
+    i = i + 1;
+  };
+  false
+}
+
+public(package) fun check_and_remove_liquidated_ask(
+  orderbook: &mut OrderBook,
+  maintenance_margin: u64,
+  current_price: u64,
+  pool_id: object::ID,
+): bool {
+  let asks = &mut orderbook.asks;
+  let len = vector::length(asks);
+  let mut i = 0;
+  while (i < len) {
+    let ask = vector::borrow(asks, i);
+
+    if (ask.price() > current_price) {
+      return false
+    };
+
+    let avaible_margin =
+      ask.margin() + (current_price*ask.size() - ask.price()*ask.size());
+
+    let margin_percentage_level =
+      (avaible_margin * 100) / current_price*ask.size();
+    if (margin_percentage_level < maintenance_margin) {
+      let margin_account_id = ask.margin_account_id();
+      let price = ask.price();
+      vector::remove(asks, i);
+
+      event::emit(PositionLiquidated {
+        pool_id,
+        margin_account_id,
+        price,
+        is_bid: false,
+      });
+      return true
+    };
+    order_index = order_index + 1;
+  };
+  false
+}

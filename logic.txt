@@ -1,0 +1,24 @@
+Liquidation mechanism calculation (BETA):
+
+Start price of token in pool = 100 USDC
+
+Let's open bid position:
+Price: 95
+Size: 5
+Leverage: 4
+
+Margin will be = (price*size)/leverage = 118.75 USDC
+
+
+After that price will fell down to 80 USDC
+Losses will be:
+
+Avaible_margin = position_margin - ((position_price-new_token_price)*position_size)
+Avaible_margin = 118.75 - ((95 - 80)*5) = 43.75
+
+Default maintaince percentage is 25%. Let's calculate current level of position after losses
+
+percentage = (avaible_margin*100)/(new_token_price*position_size)
+percentage = (43.75*100)/(80*5) = 10%
+
+It's less than 25%, so position will be liquidated

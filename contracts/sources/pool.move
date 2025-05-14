@@ -20,7 +20,8 @@ public struct Pool has key, store {
   vault: Vault,
   orderbook: OrderBook,
   oracle: Oracle,
-  maintenance_margin: u64,
+  maintenance_margin_percentage: u64, //percentage of margin required to maintain a position
+  current_usdc_price_of_token: u64,
   funding_rate: u64,
   last_funding_time: u64,
 }
@@ -47,7 +48,18 @@ public struct PositionClosed has copy, drop {
   is_bid: bool,
 }
 
-public fun new(maintenance_margin: u64, ctx: &mut TxContext): Pool {
+public struct PositionLiquidated has copy, drop {
+  pool_id: ID,
+  margin_account_id: ID,
+  price: u64,
+  is_bid: bool,
+}
+
+public fun new(
+  maintenance_margin_percentage: u64,
+  current_usdc_price_of_token: u64,
+  ctx: &mut TxContext,
+): Pool {
   let id = object::new(ctx);
   let vault = vault::empty(ctx);
   let orderbook = orderbook::empty(ctx);
@@ -62,7 +74,8 @@ public fun new(maintenance_margin: u64, ctx: &mut TxContext): Pool {
     vault,
     orderbook,
     oracle,
-    maintenance_margin,
+    maintenance_margin_percentage,
+    current_usdc_price_of_token,
     funding_rate: 0,
     last_funding_time: 0,
   }
@@ -215,40 +228,33 @@ public fun close_position(
   });
 }
 
-// public fun check_liquidations(pool: &mut Pool, ctx: &mut TxContext) {
-//   let current_price = oracle::get_price(&pool.oracle);
+public fun check_liquidations(pool: &mut Pool) {
+  let current_price = pool.current_usdc_price_of_token;
+  let pool_id = object::id(pool);
+  let orderbook = &mut pool.orderbook;
 
-//   // Check bid positions
-//   let i = 0;
-//   let len = vector::length(&pool.orderbook.bids);
-//   while (i < len) {
-//     let bid = vector::borrow(&pool.orderbook.bids, i);
-//     if (bid.margin() < pool.maintenance_margin) {
-//       // Liquidate position
-//       let margin_account = object::borrow_global<
-//         MarginAccount,
-//       >(bid.margin_account_id());
-//       margin_account::remove_position(margin_account, bid.id());
-//       vector::remove(&mut pool.orderbook.bids, i);
-//     } else {
-//       i = i + 1;
-//     };
-//   };
+  // Run until no liquidations are found
+  while (
+    orderbook::check_and_remove_liquidated_bid(
+      orderbook,
+      pool.maintenance_margin_percentage,
+      current_price,
+      pool_id,
+    )
+  ) {};
 
-//   // Check ask positions
-//   let i = 0;
-//   let len = vector::length(&pool.orderbook.asks);
-//   while (i < len) {
-//     let ask = vector::borrow(&pool.orderbook.asks, i);
-//     if (ask.margin() < pool.maintenance_margin) {
-//       // Liquidate position
-//       let margin_account = object::borrow_global<
-//         MarginAccount,
-//       >(ask.margin_account_id());
-//       margin_account::remove_position(margin_account, ask.id());
-//       vector::remove(&mut pool.orderbook.asks, i);
-//     } else {
-//       i = i + 1;
-//     };
-//   };
-// }
+  while (
+    orderbook::check_and_remove_liquidated_ask(
+      orderbook,
+      pool.maintenance_margin_percentage,
+      current_price,
+      pool_id,
+    )
+  ) {};
+}
+
+#[test_only]
+// immitate oracle update
+public fun set_token_price(pool: &mut Pool, new_price: u64) {
+  pool.current_usdc_price_of_token = new_price;
+}
