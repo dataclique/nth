@@ -329,11 +329,6 @@ public(package) fun check_and_remove_liquidated_bid(
       let price = bid.price();
       vector::remove(bids, i);
 
-      std::debug::print(&b"Liquidated bid order: ");
-      std::debug::print(&price);
-      std::debug::print(&b" with margin: ");
-      std::debug::print(&avaible_margin);
-
       event::emit(PositionLiquidated {
         pool_id,
         margin_account_id,
