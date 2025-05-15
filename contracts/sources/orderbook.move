@@ -303,7 +303,7 @@ public fun get_ask(orderbook: &OrderBook, index: u64): &Order {
 // percentage
 public(package) fun check_and_remove_liquidated_bid(
   orderbook: &mut OrderBook,
-  maintenance_margin_percentage: u64,
+  maintenance_margin_rate: u64,
   current_price: u64,
   pool_id: object::ID,
 ): bool {
@@ -318,13 +318,12 @@ public(package) fun check_and_remove_liquidated_bid(
       return false
     };
 
-    let avaible_margin =
-      bid.margin() - (bid.price()*bid.size() - current_price*bid.size());
+    let initial_margin = bid.margin();
+    let maintenance_margin = bid.size()*bid.price()*maintenance_margin_rate/100;
+    let liquidation_price =
+      bid.price() - (initial_margin - maintenance_margin)/bid.size();
 
-    let margin_percentage_level =
-      (avaible_margin * 100) / (current_price*bid.size());
-
-    if (margin_percentage_level < maintenance_margin_percentage) {
+    if (liquidation_price >= current_price) {
       let margin_account_id = bid.margin_account_id();
       let price = bid.price();
       vector::remove(bids, i);
@@ -344,7 +343,7 @@ public(package) fun check_and_remove_liquidated_bid(
 
 public(package) fun check_and_remove_liquidated_ask(
   orderbook: &mut OrderBook,
-  maintenance_margin: u64,
+  maintenance_margin_rate: u64,
   current_price: u64,
   pool_id: object::ID,
 ): bool {
@@ -358,12 +357,12 @@ public(package) fun check_and_remove_liquidated_ask(
       return false
     };
 
-    let avaible_margin =
-      ask.margin() + (current_price*ask.size() - ask.price()*ask.size());
+    let initial_margin = ask.margin();
+    let maintenance_margin = ask.size()*ask.price()*maintenance_margin_rate/100;
+    let liquidation_price =
+      ask.price() + (initial_margin - maintenance_margin)/ask.size();
 
-    let margin_percentage_level =
-      (avaible_margin * 100) / current_price*ask.size();
-    if (margin_percentage_level < maintenance_margin) {
+    if (liquidation_price <= current_price) {
       let margin_account_id = ask.margin_account_id();
       let price = ask.price();
       vector::remove(asks, i);

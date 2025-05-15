@@ -1,9 +1,9 @@
 module strike::constants;
 
-const DEFAULT_MAINTANCE_PERSENTAGE_MARGIN: u64 = 25; // 25%
+const DEFAULT_MAINTANCE_MARGIN_RATE: u64 = 25; // 25%
 
-public fun default_maintance_persentage_margin(): u64 {
-  DEFAULT_MAINTANCE_PERSENTAGE_MARGIN
+public fun default_maintance_margin_rate(): u64 {
+  DEFAULT_MAINTANCE_MARGIN_RATE
 }
 
 // const MAX_U64: u64 = ((1u128 << 64) - 1) as u64;

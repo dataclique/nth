@@ -20,7 +20,7 @@ fun setup(test: &mut Scenario) {
   next_tx(test, ALICE);
   {
     let pool = pool::new(
-      constants::default_maintance_persentage_margin(),
+      constants::default_maintance_margin_rate(),
       100,
       test.ctx(),
     );

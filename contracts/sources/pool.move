@@ -20,7 +20,7 @@ public struct Pool has key, store {
   vault: Vault,
   orderbook: OrderBook,
   oracle: Oracle,
-  maintenance_margin_percentage: u64, //percentage of margin required to maintain a position
+  maintenance_margin_rate: u64, //percentage of margin required to maintain a position
   current_usdc_price_of_token: u64,
   funding_rate: u64,
   last_funding_time: u64,
@@ -56,7 +56,7 @@ public struct PositionLiquidated has copy, drop {
 }
 
 public fun new(
-  maintenance_margin_percentage: u64,
+  maintenance_margin_rate: u64,
   current_usdc_price_of_token: u64,
   ctx: &mut TxContext,
 ): Pool {
@@ -74,7 +74,7 @@ public fun new(
     vault,
     orderbook,
     oracle,
-    maintenance_margin_percentage,
+    maintenance_margin_rate,
     current_usdc_price_of_token,
     funding_rate: 0,
     last_funding_time: 0,
@@ -237,7 +237,7 @@ public fun check_liquidations(pool: &mut Pool) {
   while (
     orderbook::check_and_remove_liquidated_bid(
       orderbook,
-      pool.maintenance_margin_percentage,
+      pool.maintenance_margin_rate,
       current_price,
       pool_id,
     )
@@ -246,7 +246,7 @@ public fun check_liquidations(pool: &mut Pool) {
   while (
     orderbook::check_and_remove_liquidated_ask(
       orderbook,
-      pool.maintenance_margin_percentage,
+      pool.maintenance_margin_rate,
       current_price,
       pool_id,
     )
