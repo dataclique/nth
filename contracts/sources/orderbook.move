@@ -327,13 +327,7 @@ public(package) fun check_and_remove_liquidated_bid(
     let liquidation_price =
       bid.price() - (initial_margin - maintenance_margin)/bid.size()*constants::float_scaling();
 
-    std::debug::print(&b"Liquidation price: ");
-    std::debug::print(&liquidation_price);
-    std::debug::print(&b"Current price: ");
-    std::debug::print(&current_price);
-
     if (liquidation_price >= current_price) {
-      std::debug::print(&b"Liquidatated");
       let margin_account_id = bid.margin_account_id();
       let price = bid.price();
       vector::remove(bids, i);
