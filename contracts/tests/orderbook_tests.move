@@ -21,10 +21,13 @@ fun setup(test: &mut Scenario) {
   {
     let pool = pool::new(
       constants::default_maintance_margin_rate(),
-      100,
+      100*constants::float_scaling(),
       test.ctx(),
     );
-    let alice_usdc = mint_for_testing<USDC>(1000, test.ctx());
+    let alice_usdc = mint_for_testing<USDC>(
+      1000*constants::float_scaling(),
+      test.ctx(),
+    );
     let alice_margin = strike::new_with_deposit(alice_usdc, test.ctx());
 
     transfer::public_transfer(pool, ALICE);
@@ -33,7 +36,10 @@ fun setup(test: &mut Scenario) {
 
   next_tx(test, BOB);
   {
-    let bob_usdc = mint_for_testing<USDC>(1000, test.ctx());
+    let bob_usdc = mint_for_testing<USDC>(
+      1000*constants::float_scaling(),
+      test.ctx(),
+    );
     let bob_margin = strike::new_with_deposit(bob_usdc, test.ctx());
     transfer::public_transfer(bob_margin, BOB);
   };
@@ -53,9 +59,9 @@ fun test_place_bid_order() {
       &mut pool,
       &mut margin_account,
       true,
-      100,
-      10,
-      2,
+      100*constants::float_scaling(),
+      10*constants::float_scaling(),
+      2*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -63,10 +69,10 @@ fun test_place_bid_order() {
     assert!(orderbook::get_bids_length(orderbook) == 1, 1);
     let order = orderbook::get_bid(orderbook, 0);
     assert!(order::is_bid(order), 2);
-    assert!(order::price(order) == 100, 3);
-    assert!(order::size(order) == 10, 4);
+    assert!(order::price(order) == 100*constants::float_scaling(), 3);
+    assert!(order::size(order) == 10*constants::float_scaling(), 4);
 
-    assert!(margin_account.balance() == 500, 5);
+    assert!(margin_account.balance() == 500*constants::float_scaling(), 5);
 
     transfer::public_transfer(pool, ALICE);
     transfer::public_transfer(margin_account, ALICE);
@@ -88,9 +94,9 @@ fun test_place_ask_order() {
       &mut pool,
       &mut margin_account,
       false,
-      100,
-      10,
-      4,
+      100*constants::float_scaling(),
+      10*constants::float_scaling(),
+      4*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -99,10 +105,10 @@ fun test_place_ask_order() {
     assert!(orderbook::get_asks_length(orderbook) == 1, 2);
     let order = orderbook::get_ask(orderbook, 0);
     assert!(!order::is_bid(order), 3);
-    assert!(order::price(order) == 100, 4);
-    assert!(order::size(order) == 10, 5);
+    assert!(order::price(order) == 100*constants::float_scaling(), 4);
+    assert!(order::size(order) == 10*constants::float_scaling(), 5);
 
-    assert!(margin_account.balance() == 750, 6);
+    assert!(margin_account.balance() == 750*constants::float_scaling(), 6);
 
     transfer::public_transfer(pool, ALICE);
     transfer::public_transfer(margin_account, ALICE);
@@ -124,9 +130,9 @@ fun test_place_and_cancel_orders() {
       &mut pool,
       &mut margin_account,
       true,
-      100,
-      10,
-      2,
+      100*constants::float_scaling(),
+      10*constants::float_scaling(),
+      2*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -143,9 +149,9 @@ fun test_place_and_cancel_orders() {
       &mut pool,
       &mut margin_account,
       false,
-      90,
-      5,
-      2,
+      90*constants::float_scaling(),
+      5*constants::float_scaling(),
+      2*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -153,27 +159,27 @@ fun test_place_and_cancel_orders() {
       &mut pool,
       &mut margin_account,
       false,
-      100,
-      2,
-      1,
+      100*constants::float_scaling(),
+      2*constants::float_scaling(),
+      1*constants::float_scaling(),
       test.ctx(),
     );
 
     let vault = pool::get_vault(&pool);
-    assert!(vault.balance() == 925, 1);
+    assert!(vault.balance() == 925*constants::float_scaling(), 1);
 
     pool::close_position(
       &mut pool,
       &mut margin_account,
-      90,
+      90*constants::float_scaling(),
       false,
       test.ctx(),
     );
 
     let vault = pool::get_vault(&pool);
-    assert!(vault.balance() == 700, 2);
+    assert!(vault.balance() == 700*constants::float_scaling(), 2);
 
-    assert!(margin_account.balance() == 800, 3);
+    assert!(margin_account.balance() == 800*constants::float_scaling(), 3);
 
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_asks_length(orderbook) == 1, 4);
@@ -200,9 +206,9 @@ fun test_insufficient_balance() {
       &mut pool,
       &mut margin_account,
       true,
-      1000,
-      100,
-      1,
+      1000*constants::float_scaling(),
+      100*constants::float_scaling(),
+      1*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -227,9 +233,9 @@ fun test_liquidations() {
       &mut pool,
       &mut margin_account,
       true,
-      100,
-      2,
-      2,
+      100*constants::float_scaling(),
+      2*constants::float_scaling(),
+      2*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -238,20 +244,21 @@ fun test_liquidations() {
       &mut pool,
       &mut margin_account,
       true,
-      95,
-      5,
-      4,
+      95*constants::float_scaling(),
+      5*constants::float_scaling(),
+      4*constants::float_scaling(),
       test.ctx(),
     );
+    // std::debug::print(&margin_account.balance());
 
     // 90*8/2 = 360 margin required
     pool::place_leveraged_order(
       &mut pool,
       &mut margin_account,
       true,
-      90,
-      8,
-      2,
+      90*constants::float_scaling(),
+      8*constants::float_scaling(),
+      2*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -260,9 +267,9 @@ fun test_liquidations() {
       &mut pool,
       &mut margin_account,
       false,
-      105,
-      7,
-      5,
+      105*constants::float_scaling(),
+      7*constants::float_scaling(),
+      5*constants::float_scaling(),
       test.ctx(),
     );
 
@@ -271,9 +278,9 @@ fun test_liquidations() {
       &mut pool,
       &mut margin_account,
       false,
-      110,
-      6,
-      3,
+      110*constants::float_scaling(),
+      6*constants::float_scaling(),
+      3*constants::float_scaling(),
       test.ctx(),
     );
     // In total we need 100 + 118.75 + 360 + 147 + 220 = 945.75 margin
@@ -281,10 +288,14 @@ fun test_liquidations() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 3, 1);
     assert!(orderbook::get_asks_length(orderbook) == 2, 2);
-    assert!(margin_account.balance() == 55, 3);
+    // 25*constants::float_scaling()/100 = 0.25 USDC
+    assert!(
+      margin_account.balance() == 54*constants::float_scaling() + 25*constants::float_scaling()/100,
+      3,
+    );
 
     // Drop price of token from 100 to 80
-    pool::set_token_price(&mut pool, 80);
+    pool::set_token_price(&mut pool, 80*constants::float_scaling());
     pool::check_liquidations(&mut pool);
 
     // Only bid order with price 95 and size 5 should be liquidated
@@ -293,16 +304,16 @@ fun test_liquidations() {
     assert!(orderbook::get_asks_length(orderbook) == 2, 5); // All asks remain
 
     let remaining_bid = orderbook::get_bid(orderbook, 0);
-    assert!(order::price(remaining_bid) == 100, 6);
+    assert!(order::price(remaining_bid) == 100*constants::float_scaling(), 6);
 
     let remaining_bid = orderbook::get_bid(orderbook, 1);
-    assert!(order::price(remaining_bid) == 90, 7);
+    assert!(order::price(remaining_bid) == 90*constants::float_scaling(), 7);
 
     // Let's close all bids positions
     pool::close_position(
       &mut pool,
       &mut margin_account,
-      100,
+      100*constants::float_scaling(),
       true,
       test.ctx(),
     );
@@ -310,7 +321,7 @@ fun test_liquidations() {
     pool::close_position(
       &mut pool,
       &mut margin_account,
-      90,
+      90*constants::float_scaling(),
       true,
       test.ctx(),
     );
@@ -318,7 +329,11 @@ fun test_liquidations() {
     // Check vault balance - should contain all the margin from liquidated
     // positions + asks orders
     let vault = pool::get_vault(&pool);
-    assert!(vault.balance() == 118 + 147 + 220, 8);
+    // 75*constants::float_scaling()/100 = 0.75 USDC
+    assert!(
+      vault.balance() == (118 + 147 + 220)*constants::float_scaling() + 75*constants::float_scaling()/100,
+      8,
+    );
 
     transfer::public_transfer(pool, ALICE);
     transfer::public_transfer(margin_account, ALICE);

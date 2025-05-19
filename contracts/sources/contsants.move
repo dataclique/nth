@@ -1,9 +1,14 @@
 module strike::constants;
 
 const DEFAULT_MAINTANCE_MARGIN_RATE: u64 = 25; // 25%
+const FLOAT_SCALING: u64 = 1_000_000;
 
 public fun default_maintance_margin_rate(): u64 {
   DEFAULT_MAINTANCE_MARGIN_RATE
+}
+
+public fun float_scaling(): u64 {
+  FLOAT_SCALING
 }
 
 // const MAX_U64: u64 = ((1u128 << 64) - 1) as u64;

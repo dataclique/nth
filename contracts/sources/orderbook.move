@@ -1,5 +1,6 @@
 module strike::orderbook;
 
+use strike::constants;
 use strike::order::Order;
 use strike::strike::MarginAccount;
 use sui::event;
@@ -319,11 +320,20 @@ public(package) fun check_and_remove_liquidated_bid(
     };
 
     let initial_margin = bid.margin();
-    let maintenance_margin = bid.size()*bid.price()*maintenance_margin_rate/100;
+    // remove float scaling, because here it's 2 scalings in size and price
+    let maintenance_margin =
+      bid.size()*bid.price()*maintenance_margin_rate/100/constants::float_scaling();
+    // multiply by float scaling because lose it during division
     let liquidation_price =
-      bid.price() - (initial_margin - maintenance_margin)/bid.size();
+      bid.price() - (initial_margin - maintenance_margin)/bid.size()*constants::float_scaling();
+
+    std::debug::print(&b"Liquidation price: ");
+    std::debug::print(&liquidation_price);
+    std::debug::print(&b"Current price: ");
+    std::debug::print(&current_price);
 
     if (liquidation_price >= current_price) {
+      std::debug::print(&b"Liquidatated");
       let margin_account_id = bid.margin_account_id();
       let price = bid.price();
       vector::remove(bids, i);

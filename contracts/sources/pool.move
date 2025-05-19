@@ -1,5 +1,6 @@
 module strike::pool;
 
+use strike::constants;
 use strike::oracle::{Self, Oracle};
 use strike::order;
 use strike::orderbook::{Self, OrderBook};
@@ -104,7 +105,10 @@ public fun place_leveraged_order(
   assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
   assert!(price > 0, EInvalidPrice);
   assert!(size > 0, EInvalidQuantity);
-  assert!(leverage > 0 && leverage <= 100, EInvalidLeverage);
+  assert!(
+    leverage > 0*constants::float_scaling() && leverage <= 100*constants::float_scaling(),
+    EInvalidLeverage,
+  );
 
   // Calculate required margin with fees
   let required_margin = (price * size) / leverage;
