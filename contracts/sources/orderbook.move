@@ -314,11 +314,6 @@ public(package) fun check_and_remove_liquidated_bid(
   while (i < len) {
     let bid = vector::borrow(bids, i);
 
-    // NO NEGATIVE NUMBERS IN SUI MOVE, CMON
-    if (bid.price() < current_price) {
-      return false
-    };
-
     let initial_margin = bid.margin();
     // remove float scaling, because here it's 2 scalings in size and price
     let maintenance_margin =
@@ -357,14 +352,11 @@ public(package) fun check_and_remove_liquidated_ask(
   while (i < len) {
     let ask = vector::borrow(asks, i);
 
-    if (ask.price() > current_price) {
-      return false
-    };
-
     let initial_margin = ask.margin();
-    let maintenance_margin = ask.size()*ask.price()*maintenance_margin_rate/100;
+    let maintenance_margin =
+      ask.size()*ask.price()*maintenance_margin_rate/100/constants::float_scaling();
     let liquidation_price =
-      ask.price() + (initial_margin - maintenance_margin)/ask.size();
+      ask.price() + (initial_margin - maintenance_margin)/ask.size()*constants::float_scaling();
 
     if (liquidation_price <= current_price) {
       let margin_account_id = ask.margin_account_id();
