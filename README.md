@@ -20,7 +20,7 @@ git config --global http.lowSpeedTime 999999
 Clone the repository with submodules:
 
 ```sh
-git clone --recurse-submodules https://github.com/data-cartel/strike.git
+git clone --recurse-submodules https://github.com/dataclique/strike.git
 ```
 
 Set up the development environment:
