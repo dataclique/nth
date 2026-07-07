@@ -6,8 +6,8 @@ const DEFAULT_MAINTANCE_MARGIN_RATE: u64 = 25; // 25%
 /// MUST equal 10^(USDC decimals) = 10^6: margin math relies on one factor
 /// of FLOAT_SCALING cancelling against USDC's base-unit denominator so
 /// `risk::margin_required` lands in `Balance<USDC>` base units. USDC has 6
-/// decimals per circlefin/stablecoin-sui `packages/usdc/sources/usdc.move`
-/// (`6, // decimals` in the `create_currency` call).
+/// decimals (`6, // decimals` in the `create_currency` call):
+/// https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move
 const FLOAT_SCALING: u64 = 1_000_000;
 
 public fun default_maintance_margin_rate(): u64 {

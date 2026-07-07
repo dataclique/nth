@@ -114,8 +114,9 @@ public use fun leverage_le as Leverage.le;
 // === UsdcAmount ===
 
 /// USDC amount in base units. 1 USDC = 10^6 base units (USDC has 6
-/// decimals; see circlefin/stablecoin-sui `packages/usdc/sources/usdc.move`,
-/// `decimals = 6`). Because 10^6 is also `float_scaling()`, dividing a
+/// decimals, `decimals = 6` in
+/// https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move).
+/// Because 10^6 is also `float_scaling()`, dividing a
 /// price-times-size product (double-scaled) by scaled leverage lands
 /// exactly in base units — `risk::margin_required` depends on this and
 /// `constants` documents the coupling.

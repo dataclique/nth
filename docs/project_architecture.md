@@ -67,8 +67,9 @@ The OrderBook maintains the resting orders for a specific token:
 
 Each side is a contiguous `vector<Order>` re-sorted with a stable
 insertion sort after every append — a deliberate data-structure choice
-justified in [orderbook_sorting.md](orderbook_sorting.md) (workload,
-layout, gas model, and the stability that preserves price-time priority).
+recorded in [adrs/01-orderbook-insertion-sort.md](../adrs/01-orderbook-insertion-sort.md)
+(workload, layout, gas model, and the stability that preserves price-time
+priority).
 
 The matching engine runs on placement: an incoming order first crosses
 against the opposite side of the book, walking resting orders in price

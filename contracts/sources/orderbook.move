@@ -233,10 +233,10 @@ public(package) fun cancel_order(
 }
 
 /// Keep bids sorted highest price first. Insertion sort is a deliberate
-/// choice, not a default — docs/orderbook_sorting.md records the analysis
-/// (append-one-restore-order workload, contiguous vector layout, Sui gas
-/// model, and the stability that preserves time priority at equal
-/// prices; comparators must stay non-strict for that stability).
+/// choice, not a default — adrs/01-orderbook-insertion-sort.md records
+/// the decision (append-one-restore-order workload, contiguous vector
+/// layout, Sui gas model, and the stability that preserves time priority
+/// at equal prices; comparators must stay non-strict for that stability).
 fun sort_bids(bids: &mut vector<Order>) {
   bids.insertion_sort_by!(|left, right| left.price().ge(right.price()));
 }

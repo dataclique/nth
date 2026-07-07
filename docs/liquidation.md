@@ -1,6 +1,7 @@
 # Liquidation Price Calculation
 
-Used formulas from ByBit: https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract
+Used formulas from
+[ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
 
 Liquidation occurs when the current price reaches the liquidation price, causing the position's margin to fall below the required maintenance margin level. The position is then closed at the bankruptcy price (0% margin level).
 

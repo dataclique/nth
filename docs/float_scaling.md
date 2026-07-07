@@ -9,7 +9,8 @@ integers: `constants::FLOAT_SCALING = 10^6`, read via
 `constants::float_scaling()`.
 
 The factor is not arbitrary. It MUST equal 10^(USDC decimals): USDC has 6
-decimals (see circlefin/stablecoin-sui, `packages/usdc/sources/usdc.move`,
+decimals (see
+[`usdc.move` in circlefin/stablecoin-sui](https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move),
 where `create_currency` is called with `decimals = 6`), so one factor of
 `FLOAT_SCALING` cancels exactly against USDC's base-unit denominator. This is
 what lets `risk::margin_required` divide a double-scaled `price * size`
