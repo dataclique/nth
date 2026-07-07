@@ -1,3 +1,0 @@
-[submodule ".sui-repo"]
-	path = .sui-repo
-	url = https://github.com/mystenlabs/sui
