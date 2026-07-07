@@ -1,0 +1,146 @@
+/// Fixed-point market quantities.
+///
+/// Prices, sizes, leverage, and USDC amounts are all scaled by
+/// `constants::float_scaling()`, but they are NOT interchangeable:
+/// multiplying two scaled values yields a double-scaled result, and mixing
+/// units silently corrupts margin math. Each quantity therefore gets its
+/// own type; the formulas that combine them (and juggle the scaling
+/// factors) live in `strike::risk`.
+module strike::units;
+
+// === Price ===
+
+/// USDC-per-token price, scaled by `constants::float_scaling()`.
+public struct Price has copy, drop, store { value: u64 }
+
+public fun price(value: u64): Price { Price { value } }
+
+public fun price_value(price: Price): u64 { price.value }
+
+public use fun price_value as Price.value;
+
+public fun price_is_zero(price: Price): bool { price.value == 0 }
+
+public use fun price_is_zero as Price.is_zero;
+
+public fun price_lt(price: Price, other: Price): bool {
+  price.value < other.value
+}
+
+public use fun price_lt as Price.lt;
+
+public fun price_le(price: Price, other: Price): bool {
+  price.value <= other.value
+}
+
+public use fun price_le as Price.le;
+
+public fun price_gt(price: Price, other: Price): bool {
+  price.value > other.value
+}
+
+public use fun price_gt as Price.gt;
+
+public fun price_ge(price: Price, other: Price): bool {
+  price.value >= other.value
+}
+
+public use fun price_ge as Price.ge;
+
+// === Size ===
+
+/// Token quantity, scaled by `constants::float_scaling()`.
+public struct Size has copy, drop, store { value: u64 }
+
+public fun size(value: u64): Size { Size { value } }
+
+public fun size_value(size: Size): u64 { size.value }
+
+public use fun size_value as Size.value;
+
+public fun size_zero(): Size { Size { value: 0 } }
+
+public fun size_is_zero(size: Size): bool { size.value == 0 }
+
+public use fun size_is_zero as Size.is_zero;
+
+/// Aborts on underflow, so callers state the `size >= other` invariant.
+public fun size_sub(size: Size, other: Size): Size {
+  Size { value: size.value - other.value }
+}
+
+public use fun size_sub as Size.sub;
+
+public fun size_add(size: Size, other: Size): Size {
+  Size { value: size.value + other.value }
+}
+
+public use fun size_add as Size.add;
+
+public fun size_min(size: Size, other: Size): Size {
+  if (size.value <= other.value) { size } else { other }
+}
+
+public use fun size_min as Size.min;
+
+public fun size_eq(size: Size, other: Size): bool {
+  size.value == other.value
+}
+
+public use fun size_eq as Size.eq;
+
+// === Leverage ===
+
+/// Position leverage multiplier, scaled by `constants::float_scaling()`
+/// (2x leverage = `2 * float_scaling()`).
+public struct Leverage has copy, drop, store { value: u64 }
+
+public fun leverage(value: u64): Leverage { Leverage { value } }
+
+public fun leverage_value(leverage: Leverage): u64 { leverage.value }
+
+public use fun leverage_value as Leverage.value;
+
+public fun leverage_is_zero(leverage: Leverage): bool { leverage.value == 0 }
+
+public use fun leverage_is_zero as Leverage.is_zero;
+
+public fun leverage_le(leverage: Leverage, other: Leverage): bool {
+  leverage.value <= other.value
+}
+
+public use fun leverage_le as Leverage.le;
+
+// === UsdcAmount ===
+
+/// USDC amount in base units. 1 USDC = 10^6 base units (USDC has 6
+/// decimals; see circlefin/stablecoin-sui `packages/usdc/sources/usdc.move`,
+/// `decimals = 6`). Because 10^6 is also `float_scaling()`, dividing a
+/// price-times-size product (double-scaled) by scaled leverage lands
+/// exactly in base units — `risk::margin_required` depends on this and
+/// `constants` documents the coupling.
+public struct UsdcAmount has copy, drop, store { value: u64 }
+
+public fun usdc(value: u64): UsdcAmount { UsdcAmount { value } }
+
+public fun usdc_value(amount: UsdcAmount): u64 { amount.value }
+
+public use fun usdc_value as UsdcAmount.value;
+
+public fun usdc_lt(amount: UsdcAmount, other: UsdcAmount): bool {
+  amount.value < other.value
+}
+
+public use fun usdc_lt as UsdcAmount.lt;
+
+public fun usdc_le(amount: UsdcAmount, other: UsdcAmount): bool {
+  amount.value <= other.value
+}
+
+public use fun usdc_le as UsdcAmount.le;
+
+public fun usdc_ge(amount: UsdcAmount, other: UsdcAmount): bool {
+  amount.value >= other.value
+}
+
+public use fun usdc_ge as UsdcAmount.ge;

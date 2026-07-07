@@ -1,8 +1,9 @@
 module strike::orderbook;
 
-use strike::constants;
-use strike::order::Order;
+use strike::order::{Self, Order, Side, OrderId};
+use strike::risk;
 use strike::strike::MarginAccount;
+use strike::units::{Self, Price, Size, UsdcAmount};
 use sui::event;
 
 // Error codes
@@ -13,9 +14,15 @@ public struct OrderBook has key, store {
   id: UID,
   bids: vector<Order>, // Buy/Long orders sorted by price (highest first)
   asks: vector<Order>, // Sell/Short orders sorted by price (lowest first)
+  next_order_id: OrderId,
 }
 
+// Events carry primitive fields: their BCS layout is the external contract
+// consumed by indexers, so domain types are projected via
+// `.value()` / `.is_bid()` at the emit site.
+
 public struct OrderCreated has copy, drop {
+  order_id: u64,
   margin_account_id: ID,
   is_bid: bool,
   price: u64,
@@ -23,14 +30,26 @@ public struct OrderCreated has copy, drop {
 }
 
 public struct OrderCanceled has copy, drop {
+  order_id: u64,
   margin_account_id: ID,
   is_bid: bool,
   price: u64,
 }
 
+/// Emitted once per fill: the incoming (taker) order crossing a resting
+/// (maker) order. Fills execute at the maker's price.
+public struct OrderMatched has copy, drop {
+  maker_order_id: u64,
+  taker_order_id: u64,
+  maker_margin_account_id: ID,
+  taker_margin_account_id: ID,
+  price: u64,
+  size: u64,
+}
+
 public struct PositionLiquidated has copy, drop {
-  pool_id: object::ID,
-  margin_account_id: object::ID,
+  pool_id: ID,
+  margin_account_id: ID,
   price: u64,
   is_bid: bool,
 }
@@ -38,336 +57,276 @@ public struct PositionLiquidated has copy, drop {
 public(package) fun empty(ctx: &mut TxContext): OrderBook {
   OrderBook {
     id: object::new(ctx),
-    bids: vector::empty(),
-    asks: vector::empty(),
+    bids: vector[],
+    asks: vector[],
+    next_order_id: order::order_id(1),
   }
 }
 
+/// Place a limit order: first cross it against the opposite side of the
+/// book (fills execute at resting-order prices), then rest any remainder.
+/// Returns the assigned order id; the id cancels the order while a
+/// remainder rests on the book.
 public(package) fun place_limit_order(
   orderbook: &mut OrderBook,
   margin_account: &MarginAccount,
   mut order: Order,
-) {
+): OrderId {
   let margin_account_id = object::id(margin_account);
 
-  // TODO: make match_against_book
-  let remaining_size = order.size();
-  // let remaining_size = match_against_book(
-  //   orderbook,
-  //   margin_account,
-  //   &order,
-  // );
+  let order_id = orderbook.next_order_id;
+  orderbook.next_order_id = order_id.next();
+  order.set_order_id(order_id);
 
-  // if (remaining_size == 0) {
-  //   return
-  // };
+  let remaining_size = match_against_book(orderbook, &order);
+  if (remaining_size.is_zero()) {
+    return order_id
+  };
 
-  let filled_size = order.size() - remaining_size;
+  let filled_size = order.size().sub(remaining_size);
   order.set_filled_size(filled_size);
 
   event::emit(OrderCreated {
+    order_id: order_id.value(),
     margin_account_id,
-    is_bid: order.is_bid(),
-    price: order.price(),
-    size: remaining_size,
+    is_bid: order.side().is_bid(),
+    price: order.price().value(),
+    size: remaining_size.value(),
   });
 
-  if (order.is_bid()) {
-    vector::push_back(&mut orderbook.bids, order);
-    sort_bids(&mut orderbook.bids);
-  } else {
-    vector::push_back(&mut orderbook.asks, order);
-    sort_asks(&mut orderbook.asks);
-  };
+  order.side().match_side!(
+    || {
+      orderbook.bids.push_back(order);
+      sort_bids(&mut orderbook.bids);
+    },
+    || {
+      orderbook.asks.push_back(order);
+      sort_asks(&mut orderbook.asks);
+    },
+  );
+
+  order_id
 }
 
-// Cancel order by price of exact margin account
+/// Cross an incoming order against the opposite side of the book, walking
+/// resting orders in price priority (books stay sorted best-first). A bid
+/// matches asks priced at or below it; an ask matches bids priced at or
+/// above it. Returns the taker size left unfilled.
+fun match_against_book(orderbook: &mut OrderBook, taker: &Order): Size {
+  let side = taker.side();
+  let makers = side.match_side!(
+    || &mut orderbook.asks,
+    || &mut orderbook.bids,
+  );
+
+  let mut remaining_size = taker.size();
+  while (!makers.is_empty() && !remaining_size.is_zero()) {
+    let maker = makers.borrow(0);
+    let crosses = side.match_side!(
+      || maker.price().le(taker.price()),
+      || maker.price().ge(taker.price()),
+    );
+    if (!crosses) {
+      break
+    };
+    remaining_size = fill_maker(makers, taker, remaining_size);
+  };
+
+  remaining_size
+}
+
+/// Fill the best resting order (index 0 — books are sorted best-first)
+/// with up to `remaining_size` from the taker, emit the fill, and remove
+/// the resting order once fully filled.
+fun fill_maker(
+  makers: &mut vector<Order>,
+  taker: &Order,
+  remaining_size: Size,
+): Size {
+  let maker = makers.borrow_mut(0);
+  let match_size = remaining_size.min(maker.unfilled_size());
+
+  let new_filled_size = maker.filled_size().add(match_size);
+  maker.set_filled_size(new_filled_size);
+
+  event::emit(OrderMatched {
+    maker_order_id: maker.order_id().value(),
+    taker_order_id: taker.order_id().value(),
+    maker_margin_account_id: maker.margin_account_id(),
+    taker_margin_account_id: taker.margin_account_id(),
+    price: maker.price().value(),
+    size: match_size.value(),
+  });
+
+  if (maker.unfilled_size().is_zero()) {
+    makers.remove(0);
+  };
+
+  remaining_size.sub(match_size)
+}
+
+/// Cancel the sender's resting order by its unique id and report the
+/// margin to refund plus the order's price. Keyed by order id rather than
+/// (account, price) so duplicate price levels stay individually
+/// cancellable.
 public(package) fun cancel_order(
   orderbook: &mut OrderBook,
   margin_account: &MarginAccount,
-  is_bid: bool,
-  price: u64,
+  side: Side,
+  order_id: OrderId,
   ctx: &TxContext,
-): u64 {
+): (UsdcAmount, Price) {
   let sender = tx_context::sender(ctx);
   assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
 
   let margin_account_id = object::id(margin_account);
-  let mut i = 0;
-  let mut found = false;
-  let mut order_index = 0;
-  let mut amount_to_withdraw = 0;
+  let orders = side.match_side!(
+    || &mut orderbook.bids,
+    || &mut orderbook.asks,
+  );
 
-  let orders = if (is_bid) {
-    &mut orderbook.bids
-  } else {
-    &mut orderbook.asks
-  };
-
-  let len = vector::length(orders);
-  while (i < len) {
-    let order = vector::borrow(orders, i);
+  let mut order_index = orders.length();
+  let mut candidate_index = 0;
+  while (candidate_index < orders.length()) {
+    let order = orders.borrow(candidate_index);
     if (
-      order.margin_account_id() == margin_account_id && order.price() == price
+      order.order_id().eq(order_id) &&
+      order.margin_account_id() == margin_account_id
     ) {
-      found = true;
-      order_index = i;
-      amount_to_withdraw = calculate_amount_to_withdraw(order);
+      order_index = candidate_index;
       break
     };
-    i = i + 1;
+    candidate_index = candidate_index + 1;
   };
 
-  assert!(found, EOrderNotFound);
-  vector::remove(orders, order_index);
+  assert!(order_index < orders.length(), EOrderNotFound);
+  let order = orders.borrow(order_index);
+  let amount_to_withdraw = risk::refund_for_unfilled(
+    order.unfilled_size(),
+    order.price(),
+    order.leverage(),
+  );
+  let price = order.price();
+  orders.remove(order_index);
 
   event::emit(OrderCanceled {
+    order_id: order_id.value(),
     margin_account_id,
-    is_bid,
-    price,
+    is_bid: side.is_bid(),
+    price: price.value(),
   });
 
-  amount_to_withdraw
+  (amount_to_withdraw, price)
 }
 
-public(package) fun calculate_amount_to_withdraw(order: &Order): u64 {
-  ((order.size() - order.filled_size())*order.price())/order.leverage()
-}
-
+/// Keep bids sorted highest price first. The book is already sorted except
+/// for the just-appended order, which the stdlib insertion sort handles in
+/// linear time.
 public(package) fun sort_bids(bids: &mut vector<Order>) {
-  let mut i = 0;
-  let len = vector::length(bids);
-  while (i < len) {
-    let mut j = i + 1;
-    while (j < len) {
-      let order_i = vector::borrow(bids, i);
-      let order_j = vector::borrow(bids, j);
-      if (order_j.price() > order_i.price()) {
-        vector::swap(bids, i, j);
-      };
-      j = j + 1;
-    };
-    i = i + 1;
-  };
+  bids.insertion_sort_by!(|left, right| left.price().ge(right.price()));
 }
 
+/// Keep asks sorted lowest price first.
 public(package) fun sort_asks(asks: &mut vector<Order>) {
-  let mut i = 0;
-  let len = vector::length(asks);
-  while (i < len) {
-    let mut j = i + 1;
-    while (j < len) {
-      let order_i = vector::borrow(asks, i);
-      let order_j = vector::borrow(asks, j);
-      if (order_j.price() < order_i.price()) {
-        vector::swap(asks, i, j);
-      };
-      j = j + 1;
-    };
-    i = i + 1;
-  };
+  asks.insertion_sort_by!(|left, right| left.price().le(right.price()));
 }
 
-public(package) fun get_best_bid(orderbook: &OrderBook): (u64, u64) {
-  if (vector::is_empty(&orderbook.bids)) {
-    (0, 0)
+public(package) fun get_best_bid(orderbook: &OrderBook): (Price, Size) {
+  if (orderbook.bids.is_empty()) {
+    (units::price(0), units::size_zero())
   } else {
-    let best_bid = vector::borrow(&orderbook.bids, 0);
+    let best_bid = orderbook.bids.borrow(0);
     (best_bid.price(), best_bid.size())
   }
 }
 
-public(package) fun get_best_ask(orderbook: &OrderBook): (u64, u64) {
-  if (vector::is_empty(&orderbook.asks)) {
-    (0, 0)
+public(package) fun get_best_ask(orderbook: &OrderBook): (Price, Size) {
+  if (orderbook.asks.is_empty()) {
+    (units::price(0), units::size_zero())
   } else {
-    let best_ask = vector::borrow(&orderbook.asks, 0);
+    let best_ask = orderbook.asks.borrow(0);
     (best_ask.price(), best_ask.size())
   }
 }
 
 public fun get_bids_length(orderbook: &OrderBook): u64 {
-  vector::length(&orderbook.bids)
+  orderbook.bids.length()
 }
 
 public fun get_asks_length(orderbook: &OrderBook): u64 {
-  vector::length(&orderbook.asks)
+  orderbook.asks.length()
 }
 
 public fun get_bid(orderbook: &OrderBook, index: u64): &Order {
-  vector::borrow(&orderbook.bids, index)
+  orderbook.bids.borrow(index)
 }
 
 public fun get_ask(orderbook: &OrderBook, index: u64): &Order {
-  vector::borrow(&orderbook.asks, index)
+  orderbook.asks.borrow(index)
 }
 
-// fun match_against_book(
-//   orderbook: &mut OrderBook,
-//   margin_account: &mut MarginAccount,
-//   order: &Order,
-// ): u64 {
-//   let mut remaining_size = order.size();
-//   debug::print(&b"Initial order size: ");
-//   debug::print(&remaining_size);
-//   let mut matched = false;
-
-//   if (order.is_bid()) {
-//     // For bid orders, match against asks (sell orders)
-//     let mut i = 0;
-//     let len = vector::length(&orderbook.asks);
-//     while (i < len && remaining_size > 0) {
-//       let ask_order = vector::borrow_mut(&mut orderbook.asks, i);
-//       debug::print(&b"Checking ask order - price: ");
-//       debug::print(&ask_order.price());
-//       debug::print(&b" size: ");
-//       debug::print(&ask_order.size());
-
-//       if (order.price() <= ask_order.price()) {
-//         let match_size = if (remaining_size >= ask_order.size()) {
-//           ask_order.size()
-//         } else {
-//           remaining_size
-//         };
-
-//         debug::print(&b"Match found! Size: ");
-//         debug::print(&match_size);
-
-//         // Update filled sizes
-//         let filled_size = ask_order.filled_size();
-//         ask_order.set_filled_size(filled_size + match_size);
-//         remaining_size = remaining_size - match_size;
-//         matched = true;
-
-//         // If ask order is fully filled, remove it
-//         if (ask_order.filled_size() == ask_order.size()) {
-//           vector::remove(&mut orderbook.asks, i);
-//         } else {
-//           i = i + 1;
-//         };
-//       } else {
-//         break
-//       };
-//     };
-//   } else {
-//     // For ask orders, match against bids (buy orders)
-//     let mut i = 0;
-//     let len = get_bids_length(orderbook);
-//     while (i < len && remaining_size > 0) {
-//       let bid_order = vector::borrow_mut(&mut orderbook.bids, i);
-//       debug::print(&b"Checking bid order - price: ");
-//       debug::print(&bid_order.price());
-//       debug::print(&b" size: ");
-//       debug::print(&bid_order.size());
-
-//       if (order.price() <= bid_order.price()) {
-//         let match_size = if (remaining_size >= bid_order.size()) {
-//           bid_order.size()
-//         } else {
-//           remaining_size
-//         };
-
-//         debug::print(&b"Match found! Size: ");
-//         debug::print(&match_size);
-
-//         // Update filled sizes
-//         let filled_size = bid_order.filled_size();
-//         bid_order.set_filled_size(filled_size + match_size);
-//         remaining_size = remaining_size - match_size;
-//         matched = true;
-
-//         // If bid order is fully filled, remove it
-//         if (bid_order.filled_size() == bid_order.size()) {
-//           vector::remove(&mut orderbook.bids, i);
-//         } else {
-//           i = i + 1;
-//         };
-//       } else {
-//         break
-//       };
-//     };
-//   };
-
-//   if (matched) {
-//     event::emit(OrderMatched {
-//       maker_margin_account_id: object::id(margin_account),
-//       taker_margin_account_id: order.margin_account_id(),
-//       price: order.price(),
-//       size: order.size() - remaining_size,
-//     });
-//   };
-
-//   debug::print(&b"Final remaining size: ");
-//   debug::print(&remaining_size);
-
-// Liquidate bid order if margin percentage level is below maintenance margin
-// percentage
+/// Remove and report the first liquidated bid, if any. `pool_id` only
+/// feeds the emitted event.
 public(package) fun check_and_remove_liquidated_bid(
   orderbook: &mut OrderBook,
   maintenance_margin_rate: u64,
-  current_price: u64,
-  pool_id: object::ID,
+  current_price: Price,
+  pool_id: ID,
 ): bool {
-  let bids = &mut orderbook.bids;
-  let len = vector::length(bids);
-  let mut i = 0;
-  while (i < len) {
-    let bid = vector::borrow(bids, i);
-
-    let initial_margin = bid.margin();
-    // remove float scaling, because here it's 2 scalings in size and price
-    let maintenance_margin =
-      bid.size()*bid.price()*maintenance_margin_rate/100/constants::float_scaling();
-    // multiply by float scaling because lose it during division
-    let liquidation_price =
-      bid.price() - (initial_margin - maintenance_margin)/bid.size()*constants::float_scaling();
-
-    if (liquidation_price >= current_price) {
-      let margin_account_id = bid.margin_account_id();
-      let price = bid.price();
-      vector::remove(bids, i);
-
-      event::emit(PositionLiquidated {
-        pool_id,
-        margin_account_id,
-        price,
-        is_bid: true,
-      });
-      return true
-    };
-    i = i + 1;
-  };
-  false
+  check_and_remove_liquidated(
+    &mut orderbook.bids,
+    maintenance_margin_rate,
+    current_price,
+    pool_id,
+  )
 }
 
+/// Remove and report the first liquidated ask, if any.
 public(package) fun check_and_remove_liquidated_ask(
   orderbook: &mut OrderBook,
   maintenance_margin_rate: u64,
-  current_price: u64,
-  pool_id: object::ID,
+  current_price: Price,
+  pool_id: ID,
 ): bool {
-  let asks = &mut orderbook.asks;
-  let len = vector::length(asks);
-  let mut i = 0;
-  while (i < len) {
-    let ask = vector::borrow(asks, i);
+  check_and_remove_liquidated(
+    &mut orderbook.asks,
+    maintenance_margin_rate,
+    current_price,
+    pool_id,
+  )
+}
 
-    let initial_margin = ask.margin();
-    let maintenance_margin =
-      ask.size()*ask.price()*maintenance_margin_rate/100/constants::float_scaling();
-    let liquidation_price =
-      ask.price() + (initial_margin - maintenance_margin)/ask.size()*constants::float_scaling();
+fun check_and_remove_liquidated(
+  orders: &mut vector<Order>,
+  maintenance_margin_rate: u64,
+  current_price: Price,
+  pool_id: ID,
+): bool {
+  let order_count = orders.length();
+  let mut order_index = 0;
+  while (order_index < order_count) {
+    let order = orders.borrow(order_index);
 
-    if (liquidation_price <= current_price) {
-      let margin_account_id = ask.margin_account_id();
-      let price = ask.price();
-      vector::remove(asks, i);
+    let liquidated = risk::is_liquidated(
+      order.side(),
+      order.price(),
+      order.size(),
+      order.margin(),
+      maintenance_margin_rate,
+      current_price,
+    );
+
+    if (liquidated) {
+      let margin_account_id = order.margin_account_id();
+      let price = order.price();
+      let side = order.side();
+      orders.remove(order_index);
 
       event::emit(PositionLiquidated {
         pool_id,
         margin_account_id,
-        price,
-        is_bid: false,
+        price: price.value(),
+        is_bid: side.is_bid(),
       });
       return true
     };

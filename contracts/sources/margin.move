@@ -12,9 +12,12 @@ const EInsufficientBalance: u64 = 2;
 /// Balance identifier.
 public struct BalanceKey<phantom T> has copy, drop, store {}
 
-// MarginAccount has key but not store, so only this module can transfer it
-// and we don't provide any transfer function, making it non-transferrable
-public struct MarginAccount has key, store {
+/// MarginAccount has `key` but deliberately NOT `store`: without `store`,
+/// `transfer::public_transfer` and embedding in other modules' structs are
+/// impossible, so the account can only move via this module's `keep`. This
+/// keeps the account bound to `owner`, which `deposit`/`withdraw` verify
+/// against the transaction sender.
+public struct MarginAccount has key {
   id: UID,
   owner: address,
   balance: Balance<USDC>,
@@ -55,18 +58,18 @@ public fun new_with_deposit(
   let id = object::new(ctx);
   let deposit_amount = coin::value(&deposit);
 
+  event::emit(MarginAccountEvent {
+    margin_account_id: object::uid_to_inner(&id),
+    kind: MarginAccountEventKind::Creation,
+  });
+
   let mut margin_account = MarginAccount {
     id,
     owner: sender,
     balance: balance::zero<USDC>(),
   };
 
-  deposit(&mut margin_account, deposit, ctx);
-
-  event::emit(MarginAccountEvent {
-    margin_account_id: object::uid_to_inner(&margin_account.id),
-    kind: MarginAccountEventKind::Creation,
-  });
+  margin_account.balance.join(coin::into_balance(deposit));
 
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&margin_account.id),
@@ -74,6 +77,13 @@ public fun new_with_deposit(
   });
 
   margin_account
+}
+
+/// Transfer the account to the transaction sender. The only way to place a
+/// MarginAccount at an address: the struct lacks `store`, so external code
+/// cannot call `transfer::public_transfer` on it.
+public fun keep(margin_account: MarginAccount, ctx: &TxContext) {
+  transfer::transfer(margin_account, tx_context::sender(ctx));
 }
 
 public fun deposit(
