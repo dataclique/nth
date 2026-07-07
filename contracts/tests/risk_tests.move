@@ -38,6 +38,20 @@ fun margin_required_rounds_down() {
   assert!(margin.value() == 33_333_333, 0);
 }
 
+/// Executable pin of the FLOAT_SCALING == 10^(USDC decimals) coupling
+/// documented in `units.move`: 1 USDC of price times 1 token of size at
+/// 1x leverage must land at exactly 1_000_000 base units == 1 USDC. If
+/// either scale drifts from the other, this fails.
+#[test]
+fun test_one_usdc_of_margin_lands_in_base_units() {
+  let margin = risk::margin_required(
+    units::price(1_000_000),
+    units::size(1_000_000),
+    units::leverage(1_000_000),
+  );
+  assert!(margin.value() == 1_000_000, 0);
+}
+
 #[test]
 fun margin_required_survives_u64_overflowing_notional() {
   // (100_000 * FS) * (1000 * FS) = 10^20 overflows u64; the u128

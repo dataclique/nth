@@ -8,7 +8,15 @@ use strike::pool::{Self, Pool, PriceCap};
 use strike::strike::{Self, MarginAccount};
 use strike::units::{Self, Price, Size, Leverage};
 use sui::coin::mint_for_testing;
-use sui::test_scenario::{begin, end, next_tx, take_from_address, Scenario};
+use sui::test_scenario::{
+  begin,
+  end,
+  next_tx,
+  return_shared,
+  take_from_address,
+  take_shared,
+  Scenario,
+};
 use usdc::usdc::USDC;
 
 // Creating setup: Alice with 1000 USDC + Bob with 1000 USDC
@@ -32,7 +40,8 @@ fun usdc_of(value: u64): u64 { value*constants::float_scaling() }
 fun setup(test: &mut Scenario) {
   next_tx(test, ALICE);
   {
-    let pool = pool::new(
+    // pool::new shares the Pool and returns its PriceCap.
+    let price_cap = pool::new(
       constants::default_maintance_margin_rate(),
       px(100),
       test.ctx(),
@@ -40,7 +49,7 @@ fun setup(test: &mut Scenario) {
     let alice_usdc = mint_for_testing<USDC>(usdc_of(1000), test.ctx());
     let alice_margin = strike::new_with_deposit(alice_usdc, test.ctx());
 
-    transfer::public_transfer(pool, ALICE);
+    transfer::public_transfer(price_cap, ALICE);
     alice_margin.keep(test.ctx());
   };
 
@@ -59,7 +68,7 @@ fun test_place_bid_order() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -81,7 +90,7 @@ fun test_place_bid_order() {
 
     assert!(margin_account.balance() == usdc_of(500), 5);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -94,7 +103,7 @@ fun test_place_ask_order() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -117,7 +126,7 @@ fun test_place_ask_order() {
 
     assert!(margin_account.balance() == usdc_of(750), 6);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -130,7 +139,7 @@ fun test_place_and_cancel_orders() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 100*10/2 = 500 margin required
@@ -144,13 +153,13 @@ fun test_place_and_cancel_orders() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Asks priced above Alice's bid at 100, so nothing crosses.
@@ -196,7 +205,7 @@ fun test_place_and_cancel_orders() {
     assert!(orderbook::get_asks_length(orderbook) == 1, 4);
     assert!(orderbook::get_bids_length(orderbook) == 1, 5);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -209,7 +218,7 @@ fun test_orders_match() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bid: 100 x 10, margin 500
@@ -223,13 +232,13 @@ fun test_orders_match() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Incoming ask at 95 x 4 crosses the bid at 100 and fully fills:
@@ -257,13 +266,13 @@ fun test_orders_match() {
     let vault = pool::get_vault(&pool);
     assert!(vault.balance() == usdc_of(500 + 190), 5);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Cancelling the partially filled bid refunds only the unfilled
@@ -284,7 +293,7 @@ fun test_orders_match() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 0, 7);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -297,7 +306,7 @@ fun test_insufficient_balance() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 1000*100/1 = 100_000 margin required, far above the 1000 deposited
@@ -311,7 +320,7 @@ fun test_insufficient_balance() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -324,7 +333,7 @@ fun test_liquidations() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 100*2/2 = 100 margin required
@@ -433,7 +442,7 @@ fun test_liquidations() {
       8,
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -446,7 +455,7 @@ fun test_liquidations_asks() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 100*2/2 = 100 margin required
@@ -543,7 +552,7 @@ fun test_liquidations_asks() {
       7,
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -558,7 +567,7 @@ fun test_taker_partially_fills_and_rests() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bid: 100 x 10, margin 500
@@ -572,13 +581,13 @@ fun test_taker_partially_fills_and_rests() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Incoming ask at 95 x 15 crosses the bid at 100: 10 fills at the
@@ -604,7 +613,7 @@ fun test_taker_partially_fills_and_rests() {
     assert!(resting.filled_size().value() == sz(10).value(), 5);
     assert!(resting.unfilled_size().value() == sz(5).value(), 6);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -617,7 +626,7 @@ fun test_taker_walks_multiple_price_levels() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bids: 100 x 2 (margin 100) and 98 x 3 (margin 147)
@@ -641,13 +650,13 @@ fun test_taker_walks_multiple_price_levels() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at 97 x 5 crosses both levels: 2 fill at 100, 3 fill at 98,
@@ -666,7 +675,7 @@ fun test_taker_walks_multiple_price_levels() {
     assert!(orderbook::get_bids_length(orderbook) == 0, 1);
     assert!(orderbook::get_asks_length(orderbook) == 0, 2);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -679,7 +688,7 @@ fun test_equal_price_orders_fill_in_time_priority() {
 
   next_tx(&mut test, ALICE);
   let (first_id, second_id) = {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Two bids at the same price level, 100 x 2 each (margin 100 each)
@@ -703,14 +712,14 @@ fun test_equal_price_orders_fill_in_time_priority() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
     (first_id, second_id)
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at 100 x 3: the first-placed bid fills fully (2) and is
@@ -736,7 +745,7 @@ fun test_equal_price_orders_fill_in_time_priority() {
     assert!(resting.filled_size().value() == sz(1).value(), 5);
     assert!(resting.unfilled_size().value() == sz(1).value(), 6);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -749,7 +758,7 @@ fun test_non_crossing_orders_rest() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 90*2/2 = 90 margin required
@@ -763,13 +772,13 @@ fun test_non_crossing_orders_rest() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at 110 sits above the bid at 90: nothing crosses, both rest
@@ -794,7 +803,7 @@ fun test_non_crossing_orders_rest() {
     let resting_ask: &Order = orderbook::get_ask(orderbook, 0);
     assert!(resting_ask.filled_size().value() == 0, 4);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -809,7 +818,7 @@ fun test_duplicate_price_orders_cancel_individually() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Two bids at the SAME price level, 100 x 2 each (margin 100 each):
@@ -864,7 +873,7 @@ fun test_duplicate_price_orders_cancel_individually() {
     assert!(orderbook::get_bids_length(orderbook) == 0, 6);
     assert!(margin_account.balance() == usdc_of(1000), 7);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -877,7 +886,7 @@ fun test_cancel_wrong_id_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     let bid_id = pool::place_leveraged_order(
@@ -907,7 +916,7 @@ fun test_cancel_wrong_id_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -920,7 +929,7 @@ fun test_cancel_other_account_order_aborts() {
 
   next_tx(&mut test, ALICE);
   let bid_id = {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     let bid_id = pool::place_leveraged_order(
@@ -933,14 +942,14 @@ fun test_cancel_other_account_order_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
     bid_id
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // The id exists on the book but belongs to Alice's account: Bob's
@@ -953,7 +962,7 @@ fun test_cancel_other_account_order_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -968,7 +977,7 @@ fun test_zero_price_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -981,7 +990,7 @@ fun test_zero_price_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -994,7 +1003,7 @@ fun test_zero_size_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -1007,7 +1016,7 @@ fun test_zero_size_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1020,7 +1029,7 @@ fun test_leverage_above_max_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // With the default 25% maintenance rate max leverage is 4x: at 5x
@@ -1036,7 +1045,7 @@ fun test_leverage_above_max_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1049,7 +1058,7 @@ fun test_zero_leverage_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -1062,7 +1071,7 @@ fun test_zero_leverage_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1075,7 +1084,7 @@ fun test_place_on_foreign_account_aborts() {
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Bob is the sender but the margin account belongs to Alice.
@@ -1089,7 +1098,7 @@ fun test_place_on_foreign_account_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1104,7 +1113,7 @@ fun test_bids_sorted_descending_after_out_of_order_placement() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -1147,7 +1156,7 @@ fun test_bids_sorted_descending_after_out_of_order_placement() {
     let third_bid = orderbook::get_bid(orderbook, 2);
     assert!(third_bid.price().value() == px(90).value(), 4);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1160,7 +1169,7 @@ fun test_asks_sorted_ascending_after_out_of_order_placement() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     pool::place_leveraged_order(
@@ -1203,7 +1212,7 @@ fun test_asks_sorted_ascending_after_out_of_order_placement() {
     let third_ask = orderbook::get_ask(orderbook, 2);
     assert!(third_ask.price().value() == px(120).value(), 4);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1218,7 +1227,7 @@ fun test_liquidation_at_exact_threshold_price() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // At max leverage (4x) the margin buffer is zero, so the liquidation
@@ -1241,7 +1250,7 @@ fun test_liquidation_at_exact_threshold_price() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 0, 1);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1254,7 +1263,7 @@ fun test_no_liquidation_just_above_threshold() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Same max-leverage position: liquidation price is exactly 95.
@@ -1279,7 +1288,7 @@ fun test_no_liquidation_just_above_threshold() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 1, 1);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1292,7 +1301,7 @@ fun test_low_leverage_long_survives_crash_to_near_zero() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // 1x long at 100 x 2: margin 200, maintenance 50, so the buffer is
@@ -1321,7 +1330,7 @@ fun test_low_leverage_long_survives_crash_to_near_zero() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 0, 2);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1344,7 +1353,7 @@ fun test_large_notional_does_not_overflow() {
 
   next_tx(&mut test, CAROL);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, CAROL);
 
     // 100_000 * 1000 / 1 = 100_000_000 USDC margin. The double-scaled
@@ -1370,7 +1379,7 @@ fun test_large_notional_does_not_overflow() {
     let vault = pool::get_vault(&pool);
     assert!(vault.balance() == usdc_of(100_000_000), 4);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1385,7 +1394,7 @@ fun test_price_cap_updates_price() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
     let cap = take_from_address<PriceCap>(&test, ALICE);
 
@@ -1408,7 +1417,7 @@ fun test_price_cap_updates_price() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 0, 1);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     transfer::public_transfer(cap, ALICE);
     margin_account.keep(test.ctx());
   };
@@ -1422,25 +1431,20 @@ fun test_wrong_pool_cap_aborts() {
 
   next_tx(&mut test, BOB);
   {
-    // Bob creates a second pool: its PriceCap lands at BOB, distinct
-    // from Alice's cap for the setup pool.
-    let pool_b = pool::new(
+    // Bob creates a second pool: pool::new shares it and returns its
+    // PriceCap directly, distinct from Alice's cap for the setup pool.
+    let cap_b = pool::new(
       constants::default_maintance_margin_rate(),
       px(100),
       test.ctx(),
     );
-    transfer::public_transfer(pool_b, BOB);
-  };
 
-  next_tx(&mut test, BOB);
-  {
-    let mut pool_a = take_from_address<Pool>(&test, ALICE);
-    let cap_b = take_from_address<PriceCap>(&test, BOB);
-
-    // Pool B's cap must not move pool A's price.
+    // Pool B only becomes takeable next tx, so the shared pool here is
+    // unambiguously pool A. Pool B's cap must not move pool A's price.
+    let mut pool_a = take_shared<Pool>(&test);
     pool::update_price(&mut pool_a, &cap_b, px(50), test.ctx());
 
-    transfer::public_transfer(pool_a, ALICE);
+    return_shared(pool_a);
     transfer::public_transfer(cap_b, BOB);
   };
   end(test);
@@ -1455,7 +1459,7 @@ fun test_taker_and_maker_exactly_consumed() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bid: 100 x 5, margin 250
@@ -1469,13 +1473,13 @@ fun test_taker_and_maker_exactly_consumed() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at exactly 100 x 5: equal prices cross (le/ge, not lt/gt),
@@ -1495,7 +1499,7 @@ fun test_taker_and_maker_exactly_consumed() {
     assert!(orderbook::get_bids_length(orderbook) == 0, 1);
     assert!(orderbook::get_asks_length(orderbook) == 0, 2);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1508,7 +1512,7 @@ fun test_taker_consumes_maker_then_rests_remainder_at_own_price() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bid: 100 x 3, margin 150
@@ -1522,13 +1526,13 @@ fun test_taker_consumes_maker_then_rests_remainder_at_own_price() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at 99 x 10 crosses the bid at 100: 3 fill at the maker's
@@ -1553,7 +1557,7 @@ fun test_taker_consumes_maker_then_rests_remainder_at_own_price() {
     assert!(resting.filled_size().value() == sz(3).value(), 4);
     assert!(resting.unfilled_size().value() == sz(7).value(), 5);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1566,7 +1570,7 @@ fun test_multi_level_walk_stops_at_non_crossing_level() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting bids: 100 x 2 (margin 100), 98 x 2 (98), 95 x 2 (95)
@@ -1600,13 +1604,13 @@ fun test_multi_level_walk_stops_at_non_crossing_level() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Ask at 97 x 10 crosses 100 and 98 (4 fill) but NOT 95: the walk
@@ -1637,7 +1641,7 @@ fun test_multi_level_walk_stops_at_non_crossing_level() {
     assert!(resting_ask.filled_size().value() == sz(4).value(), 6);
     assert!(resting_ask.unfilled_size().value() == sz(6).value(), 7);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1650,7 +1654,7 @@ fun test_bid_taker_fills_at_ask_prices() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Resting asks: 90 x 1 (margin 90) and 95 x 1 (margin 95)
@@ -1674,13 +1678,13 @@ fun test_bid_taker_fills_at_ask_prices() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Incoming bid at 100 x 2 fills both makers at THEIR prices (90,
@@ -1708,25 +1712,27 @@ fun test_bid_taker_fills_at_ask_prices() {
     assert!(vault.balance() == usdc_of(90 + 95 + 100), 3);
     assert!(margin_account.balance() == usdc_of(1000 - 100), 4);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
 }
 
-#[test]
-fun test_self_match_is_allowed() {
+/// Self-fills would burn margin into the vault with no counterparty, and
+/// silently skipping the trader's own resting order would trade through
+/// price priority — so matching aborts the whole transaction when the
+/// next crossing maker belongs to the taker's own account.
+#[test, expected_failure(abort_code = orderbook::ESelfMatch)]
+fun test_self_match_aborts() {
   let mut test = begin(@0xF);
   setup(&mut test);
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
-    // Alice rests a bid, then crosses it with her OWN ask. There is no
-    // self-match prevention: the orders fill against each other. This
-    // documents current behavior — one account can take both sides.
+    // Alice rests a bid, then crosses it with her OWN ask.
     pool::place_leveraged_order(
       &mut pool,
       &mut margin_account,
@@ -1747,11 +1753,7 @@ fun test_self_match_is_allowed() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
-
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1764,7 +1766,7 @@ fun test_cancel_with_wrong_side_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     let bid_id = pool::place_leveraged_order(
@@ -1787,7 +1789,7 @@ fun test_cancel_with_wrong_side_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1800,7 +1802,7 @@ fun test_cancel_on_empty_book_aborts() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Nothing was ever placed: cancelling on the fresh pool aborts
@@ -1813,7 +1815,7 @@ fun test_cancel_on_empty_book_aborts() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1826,7 +1828,7 @@ fun test_best_bid_and_ask_reflect_book() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Empty book: both sides report the (0, 0) sentinel.
@@ -1869,7 +1871,7 @@ fun test_best_bid_and_ask_reflect_book() {
     assert!(ask_price.value() == 0, 7);
     assert!(ask_size.value() == 0, 8);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1882,7 +1884,7 @@ fun test_liquidation_skips_partially_filled_order_margin_math() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Max-leverage bid: 100 x 10 at 4x, margin 250 == maintenance, so
@@ -1897,13 +1899,13 @@ fun test_liquidation_skips_partially_filled_order_margin_math() {
       test.ctx(),
     );
 
-    transfer::public_transfer(pool, BOB);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
 
   next_tx(&mut test, BOB);
   {
-    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
 
     // Bob's ask fills half the bid: 5 of 10.
@@ -1934,7 +1936,7 @@ fun test_liquidation_skips_partially_filled_order_margin_math() {
     let orderbook = pool::get_orderbook(&pool);
     assert!(orderbook::get_bids_length(orderbook) == 0, 2);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
@@ -1947,7 +1949,7 @@ fun test_order_ids_unique_across_sides() {
 
   next_tx(&mut test, ALICE);
   {
-    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut pool = take_shared<Pool>(&test);
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Non-crossing bid then ask: ids come from ONE counter shared by
@@ -1975,7 +1977,7 @@ fun test_order_ids_unique_across_sides() {
     assert!(!bid_id.eq(ask_id), 1);
     assert!(bid_id.value() + 1 == ask_id.value(), 2);
 
-    transfer::public_transfer(pool, ALICE);
+    return_shared(pool);
     margin_account.keep(test.ctx());
   };
   end(test);
