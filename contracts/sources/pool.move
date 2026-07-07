@@ -9,6 +9,10 @@ use strike::units::{Price, Size, Leverage};
 use strike::vault::{Self, Vault};
 use sui::event;
 
+/// Mutators assert this against `Pool.version` so a future package upgrade
+/// can migrate shared pools explicitly instead of operating on stale state.
+const POOL_VERSION: u64 = 1;
+
 // Error constants
 const EInsufficientBalance: u64 = 1;
 const EInvalidPrice: u64 = 2;
@@ -16,20 +20,28 @@ const EInvalidQuantity: u64 = 3;
 const EInvalidAccountOwner: u64 = 4;
 const EInvalidLeverage: u64 = 5;
 const EWrongPool: u64 = 6;
+const EInvalidMaintenanceMarginRate: u64 = 7;
+const EZeroMargin: u64 = 8;
+const EWrongVersion: u64 = 9;
 
-/// Pool holds the vault, orderbook, and oracle for a trading pair
-public struct Pool has key, store {
+/// Shared market object holding the vault, orderbook, and oracle for one
+/// trading pair. Shared (not owned) so any trader can submit orders
+/// concurrently; Sui serializes the mutations.
+public struct Pool has key {
   id: UID,
+  version: u64,
   vault: Vault,
   orderbook: OrderBook,
   oracle: Oracle,
-  maintenance_margin_rate: u64, //percentage of margin required to maintain a position
+  /// Percentage (0..=100] of position notional required as maintenance
+  /// margin. Also bounds leverage: max leverage = 100 / rate.
+  maintenance_margin_rate: u64,
   funding_rate: u64,
   last_funding_time: u64,
 }
 
-/// Capability to update the pool's oracle price. Minted once in `new` for
-/// the pool creator; without it the price — and therefore every
+/// Capability to update the pool's oracle price. Minted once in `new` and
+/// returned to the caller; without it the price — and therefore every
 /// liquidation decision — cannot be moved.
 public struct PriceCap has key, store {
   id: UID,
@@ -62,14 +74,24 @@ public struct PositionClosed has copy, drop {
   is_bid: bool,
 }
 
-/// Create a pool and transfer its `PriceCap` to the sender. The oracle
-/// starts at `initial_price` so liquidation checks are meaningful before
-/// the first `update_price`.
+/// Create and share a pool for one trading pair, returning its `PriceCap`
+/// for the caller to keep or delegate. The oracle starts at
+/// `initial_price` so liquidation checks are meaningful before the first
+/// `update_price`. Aborts with `EInvalidMaintenanceMarginRate` unless
+/// `0 < maintenance_margin_rate <= 100` (0 would divide by zero in
+/// `risk::max_leverage`; above 100 no leverage satisfies the margin
+/// requirement).
 public fun new(
   maintenance_margin_rate: u64,
   initial_price: Price,
   ctx: &mut TxContext,
-): Pool {
+): PriceCap {
+  assert!(
+    maintenance_margin_rate > 0 && maintenance_margin_rate <= 100,
+    EInvalidMaintenanceMarginRate,
+  );
+  assert!(!initial_price.is_zero(), EInvalidPrice);
+
   let id = object::new(ctx);
   let vault = vault::empty(ctx);
   let orderbook = orderbook::empty(ctx);
@@ -79,31 +101,32 @@ public fun new(
   let pool_id = object::uid_to_inner(&id);
   event::emit(PoolCreated { pool_id });
 
-  transfer::transfer(
-    PriceCap { id: object::new(ctx), pool_id },
-    tx_context::sender(ctx),
-  );
-
-  Pool {
+  transfer::share_object(Pool {
     id,
+    version: POOL_VERSION,
     vault,
     orderbook,
     oracle,
     maintenance_margin_rate,
     funding_rate: 0,
     last_funding_time: 0,
-  }
+  });
+
+  PriceCap { id: object::new(ctx), pool_id }
 }
 
 /// Move the oracle price. Capability-gated: liquidations key off this
-/// price, so only the `PriceCap` holder may set it.
+/// price, so only the `PriceCap` holder may set it. Aborts with
+/// `EWrongPool` when the cap belongs to a different pool.
 public fun update_price(
   pool: &mut Pool,
   cap: &PriceCap,
   new_price: Price,
   ctx: &TxContext,
 ) {
+  assert_version(pool);
   assert!(cap.pool_id == object::id(pool), EWrongPool);
+  assert!(!new_price.is_zero(), EInvalidPrice);
   oracle::update_price(&mut pool.oracle, new_price, ctx);
 }
 
@@ -117,6 +140,13 @@ public fun get_vault(pool: &Pool): &Vault {
   &pool.vault
 }
 
+/// Place a leveraged limit order: charge the margin
+/// (`price * size / leverage`, in USDC base units) from the account into
+/// the vault, cross the order against the book, and rest any remainder.
+/// Returns the assigned order id. Aborts on: foreign account
+/// (`EInvalidAccountOwner`), zero price/size, leverage of zero or above
+/// `risk::max_leverage` (`EInvalidLeverage`), margin rounding to zero
+/// (`EZeroMargin`), or insufficient balance.
 public fun place_leveraged_order(
   pool: &mut Pool,
   margin_account: &mut MarginAccount,
@@ -126,6 +156,7 @@ public fun place_leveraged_order(
   leverage: Leverage,
   ctx: &mut TxContext,
 ): OrderId {
+  assert_version(pool);
   let sender = tx_context::sender(ctx);
   assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
   assert!(!price.is_zero(), EInvalidPrice);
@@ -139,6 +170,9 @@ public fun place_leveraged_order(
   );
 
   let required_margin = risk::margin_required(price, size, leverage);
+  // Truncation can floor a dust notional to zero margin — never accept
+  // an order backed by no collateral.
+  assert!(required_margin.value() > 0, EZeroMargin);
   assert!(
     margin_account.balance() >= required_margin.value(),
     EInsufficientBalance,
@@ -186,6 +220,11 @@ public fun place_leveraged_order(
 // TODO: funding-rate payouts (update_funding_rates) — see git history for
 // the prototype sketch.
 
+/// Cancel the sender's resting order by id and refund the margin backing
+/// its unfilled size from the vault to the margin account. Aborts with
+/// `EInvalidAccountOwner` for a foreign account and `EOrderNotFound`
+/// (from the orderbook) when the id does not match a resting order of
+/// this account on that side.
 public fun close_position(
   pool: &mut Pool,
   margin_account: &mut MarginAccount,
@@ -193,6 +232,7 @@ public fun close_position(
   order_id: OrderId,
   ctx: &mut TxContext,
 ) {
+  assert_version(pool);
   let sender = tx_context::sender(ctx);
   assert!(margin_account.verify_owner(sender), EInvalidAccountOwner);
 
@@ -221,29 +261,30 @@ public fun close_position(
   });
 }
 
+/// Sweep both book sides once, removing every position past its
+/// liquidation threshold at the current oracle price. Anyone may call
+/// this; each removal emits `PositionLiquidated`.
 public fun check_liquidations(pool: &mut Pool) {
+  assert_version(pool);
   let current_price = oracle::get_price(&pool.oracle);
   let pool_id = object::id(pool);
-  let orderbook = &mut pool.orderbook;
 
-  // Run until no liquidations are found
-  while (
-    orderbook::check_and_remove_liquidated_bid(
-      orderbook,
-      pool.maintenance_margin_rate,
-      current_price,
-      pool_id,
-    )
-  ) {};
+  orderbook::remove_liquidated_bids(
+    &mut pool.orderbook,
+    pool.maintenance_margin_rate,
+    current_price,
+    pool_id,
+  );
+  orderbook::remove_liquidated_asks(
+    &mut pool.orderbook,
+    pool.maintenance_margin_rate,
+    current_price,
+    pool_id,
+  );
+}
 
-  while (
-    orderbook::check_and_remove_liquidated_ask(
-      orderbook,
-      pool.maintenance_margin_rate,
-      current_price,
-      pool_id,
-    )
-  ) {};
+fun assert_version(pool: &Pool) {
+  assert!(pool.version == POOL_VERSION, EWrongVersion);
 }
 
 #[test_only]

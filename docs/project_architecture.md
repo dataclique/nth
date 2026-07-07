@@ -26,7 +26,12 @@ efficient trading environment.
 ### Pool
 
 The Pool is the central component that orchestrates all trading activities
-for a specific token. It serves as the main interface for:
+for a specific token. `pool::new` validates the maintenance margin rate
+(`0 < rate <= 100`) and **shares** the Pool object: a market must accept
+orders from any trader, so every mutation goes through Sui's shared-object
+consensus rather than a single owner. The struct carries a `version` field
+asserted by every mutator, giving package upgrades an explicit migration
+path. It serves as the main interface for:
 
 - Order placement and management (`place_leveraged_order`, `close_position`)
 - Fund handling through the vault
@@ -34,18 +39,24 @@ for a specific token. It serves as the main interface for:
 - Liquidation sweeps (`check_liquidations`)
 
 Order placement validates everything at the boundary before any state
-changes: account ownership, non-zero price and size, and the leverage cap.
-Leverage above `100 / maintenance_margin_rate` (or zero leverage) aborts with
-`EInvalidLeverage` — above that bound the initial margin is below the
-maintenance margin, so the position would be born liquidatable. See
-[liquidation.md](liquidation.md).
+changes: account ownership, non-zero price and size, the leverage cap, and
+a non-zero margin (dust notionals whose margin truncates to zero abort with
+`EZeroMargin`). Leverage above `100 / maintenance_margin_rate` (or zero
+leverage) aborts with `EInvalidLeverage` — above that bound the initial
+margin is below the maintenance margin, so the position would be born
+liquidatable. See [liquidation.md](liquidation.md).
+
+Matching enforces self-trade prevention: an incoming order that would
+cross a resting order from the same margin account aborts with
+`ESelfMatch` rather than filling against it or trading through it.
 
 ### PriceCap
 
-Creating a pool mints a `PriceCap` and transfers it to the pool creator.
-`pool::update_price` requires the cap (and checks it belongs to that pool),
-so only the cap holder can move the oracle price — and with it, every
-liquidation decision. There is no other production path to the price.
+Creating a pool mints a `PriceCap` and returns it to the caller, who
+decides where it lives (keep, DAO, multisig). `pool::update_price`
+requires the cap (and checks it belongs to that pool), so only the cap
+holder can move the oracle price — and with it, every liquidation
+decision. There is no other production path to the price.
 
 ### OrderBook
 
@@ -53,6 +64,11 @@ The OrderBook maintains the resting orders for a specific token:
 
 - Buy orders (bids), sorted highest price first
 - Sell orders (asks), sorted lowest price first
+
+Each side is a contiguous `vector<Order>` re-sorted with a stable
+insertion sort after every append — a deliberate data-structure choice
+justified in [orderbook_sorting.md](orderbook_sorting.md) (workload,
+layout, gas model, and the stability that preserves price-time priority).
 
 The matching engine runs on placement: an incoming order first crosses
 against the opposite side of the book, walking resting orders in price

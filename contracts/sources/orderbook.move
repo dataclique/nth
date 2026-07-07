@@ -9,6 +9,7 @@ use sui::event;
 // Error codes
 const EOrderNotFound: u64 = 1;
 const EInvalidAccountOwner: u64 = 2;
+const ESelfMatch: u64 = 3;
 
 public struct OrderBook has key, store {
   id: UID,
@@ -21,12 +22,16 @@ public struct OrderBook has key, store {
 // consumed by indexers, so domain types are projected via
 // `.value()` / `.is_bid()` at the emit site.
 
+/// Emitted when an order (or its unfilled remainder after crossing the
+/// book) starts resting. `remaining_size` is the size that rests — NOT
+/// the size originally submitted, which `pool::PositionOpened.size`
+/// carries.
 public struct OrderCreated has copy, drop {
   order_id: u64,
   margin_account_id: ID,
   is_bid: bool,
   price: u64,
-  size: u64,
+  remaining_size: u64,
 }
 
 public struct OrderCanceled has copy, drop {
@@ -91,7 +96,7 @@ public(package) fun place_limit_order(
     margin_account_id,
     is_bid: order.side().is_bid(),
     price: order.price().value(),
-    size: remaining_size.value(),
+    remaining_size: remaining_size.value(),
   });
 
   order.side().match_side!(
@@ -111,7 +116,11 @@ public(package) fun place_limit_order(
 /// Cross an incoming order against the opposite side of the book, walking
 /// resting orders in price priority (books stay sorted best-first). A bid
 /// matches asks priced at or below it; an ask matches bids priced at or
-/// above it. Returns the taker size left unfilled.
+/// above it. Returns the taker size left unfilled. Aborts with
+/// `ESelfMatch` when the next crossing maker belongs to the taker's own
+/// account: filling yourself burns margin into the vault with no
+/// counterparty, and silently skipping your own order would trade through
+/// price priority.
 fun match_against_book(orderbook: &mut OrderBook, taker: &Order): Size {
   let side = taker.side();
   let makers = side.match_side!(
@@ -129,6 +138,10 @@ fun match_against_book(orderbook: &mut OrderBook, taker: &Order): Size {
     if (!crosses) {
       break
     };
+    assert!(
+      maker.margin_account_id() != taker.margin_account_id(),
+      ESelfMatch,
+    );
     remaining_size = fill_maker(makers, taker, remaining_size);
   };
 
@@ -219,15 +232,17 @@ public(package) fun cancel_order(
   (amount_to_withdraw, price)
 }
 
-/// Keep bids sorted highest price first. The book is already sorted except
-/// for the just-appended order, which the stdlib insertion sort handles in
-/// linear time.
-public(package) fun sort_bids(bids: &mut vector<Order>) {
+/// Keep bids sorted highest price first. Insertion sort is a deliberate
+/// choice, not a default — docs/orderbook_sorting.md records the analysis
+/// (append-one-restore-order workload, contiguous vector layout, Sui gas
+/// model, and the stability that preserves time priority at equal
+/// prices; comparators must stay non-strict for that stability).
+fun sort_bids(bids: &mut vector<Order>) {
   bids.insertion_sort_by!(|left, right| left.price().ge(right.price()));
 }
 
-/// Keep asks sorted lowest price first.
-public(package) fun sort_asks(asks: &mut vector<Order>) {
+/// Keep asks sorted lowest price first. See `sort_bids`.
+fun sort_asks(asks: &mut vector<Order>) {
   asks.insertion_sort_by!(|left, right| left.price().le(right.price()));
 }
 
@@ -249,31 +264,35 @@ public(package) fun get_best_ask(orderbook: &OrderBook): (Price, Size) {
   }
 }
 
+#[test_only]
 public fun get_bids_length(orderbook: &OrderBook): u64 {
   orderbook.bids.length()
 }
 
+#[test_only]
 public fun get_asks_length(orderbook: &OrderBook): u64 {
   orderbook.asks.length()
 }
 
+#[test_only]
 public fun get_bid(orderbook: &OrderBook, index: u64): &Order {
   orderbook.bids.borrow(index)
 }
 
+#[test_only]
 public fun get_ask(orderbook: &OrderBook, index: u64): &Order {
   orderbook.asks.borrow(index)
 }
 
-/// Remove and report the first liquidated bid, if any. `pool_id` only
-/// feeds the emitted event.
-public(package) fun check_and_remove_liquidated_bid(
+/// Remove every liquidated bid in one pass, emitting `PositionLiquidated`
+/// per removal. `pool_id` only feeds the emitted events.
+public(package) fun remove_liquidated_bids(
   orderbook: &mut OrderBook,
   maintenance_margin_rate: u64,
   current_price: Price,
   pool_id: ID,
-): bool {
-  check_and_remove_liquidated(
+) {
+  remove_liquidated(
     &mut orderbook.bids,
     maintenance_margin_rate,
     current_price,
@@ -281,14 +300,14 @@ public(package) fun check_and_remove_liquidated_bid(
   )
 }
 
-/// Remove and report the first liquidated ask, if any.
-public(package) fun check_and_remove_liquidated_ask(
+/// Remove every liquidated ask in one pass.
+public(package) fun remove_liquidated_asks(
   orderbook: &mut OrderBook,
   maintenance_margin_rate: u64,
   current_price: Price,
   pool_id: ID,
-): bool {
-  check_and_remove_liquidated(
+) {
+  remove_liquidated(
     &mut orderbook.asks,
     maintenance_margin_rate,
     current_price,
@@ -296,15 +315,18 @@ public(package) fun check_and_remove_liquidated_ask(
   )
 }
 
-fun check_and_remove_liquidated(
+/// Single O(n) sweep: the index only advances past survivors, since
+/// removal shifts the next candidate into the current slot. A market
+/// crash liquidating the whole book therefore costs one pass, not the
+/// O(n^2) of restarting the scan per removal.
+fun remove_liquidated(
   orders: &mut vector<Order>,
   maintenance_margin_rate: u64,
   current_price: Price,
   pool_id: ID,
-): bool {
-  let order_count = orders.length();
+) {
   let mut order_index = 0;
-  while (order_index < order_count) {
+  while (order_index < orders.length()) {
     let order = orders.borrow(order_index);
 
     let liquidated = risk::is_liquidated(
@@ -328,9 +350,8 @@ fun check_and_remove_liquidated(
         price: price.value(),
         is_bid: side.is_bid(),
       });
-      return true
+    } else {
+      order_index = order_index + 1;
     };
-    order_index = order_index + 1;
   };
-  false
 }
