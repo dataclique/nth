@@ -15,5 +15,5 @@ sqlx = { version = "0.8.3", features = [
   "tls-native-tls",
 ] }
 
-# Using the local sui-sdk from the .sui-repo directory
-sui-sdk = { path = "../.sui-repo/crates/sui-sdk" }
+# Pinned to the same sui release as the CLI provided by the nix devshell
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1" }

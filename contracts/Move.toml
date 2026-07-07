@@ -7,7 +7,9 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 
 [dependencies.Sui]
 override = true
-local = "../.sui-repo/crates/sui-framework/packages/sui-framework"
+git = "https://github.com/MystenLabs/sui.git"
+subdir = "crates/sui-framework/packages/sui-framework"
+rev = "testnet-v1.75.1"
 
 [dependencies.usdc]
 git = "https://github.com/circlefin/stablecoin-sui.git"

@@ -8,8 +8,7 @@
     "**/build": true,
     "**/target": true,
     "**/.direnv": true,
-    "**/.devenv": true,
-    "**/.sui-repo": true
+    "**/.devenv": true
   },
   "[json][javascript][typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"

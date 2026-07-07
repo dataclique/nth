@@ -12,7 +12,6 @@ on:
       - master
     paths:
       - "contracts/**"
-      - ".sui-repo/**"
       - ".github/workflows/contracts.yaml"
 
 jobs:
@@ -22,8 +21,6 @@ jobs:
       NIXPKGS_ALLOW_UNFREE: 1
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/flakehub-cache-action@main
