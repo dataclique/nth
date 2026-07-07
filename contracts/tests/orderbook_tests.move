@@ -1445,3 +1445,538 @@ fun test_wrong_pool_cap_aborts() {
   };
   end(test);
 }
+
+// === Matching edge cases ===
+
+#[test]
+fun test_taker_and_maker_exactly_consumed() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Resting bid: 100 x 5, margin 250
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(5),
+      lev(2),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, BOB);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Ask at exactly 100 x 5: equal prices cross (le/ge, not lt/gt),
+    // the maker fills fully and is removed, the taker's remainder is
+    // zero so it never rests — both books end empty.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(100),
+      sz(5),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
+    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_taker_consumes_maker_then_rests_remainder_at_own_price() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Resting bid: 100 x 3, margin 150
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(3),
+      lev(2),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, BOB);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Ask at 99 x 10 crosses the bid at 100: 3 fill at the maker's
+    // price, and the remaining 7 rest at the TAKER's own price 99 —
+    // the fill price never leaks into the resting remainder.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(99),
+      sz(10),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
+    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+
+    let resting: &Order = orderbook::get_ask(orderbook, 0);
+    assert!(resting.price().value() == px(99).value(), 3);
+    assert!(resting.filled_size().value() == sz(3).value(), 4);
+    assert!(resting.unfilled_size().value() == sz(7).value(), 5);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_multi_level_walk_stops_at_non_crossing_level() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Resting bids: 100 x 2 (margin 100), 98 x 2 (98), 95 x 2 (95)
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(98),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(95),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, BOB);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Ask at 97 x 10 crosses 100 and 98 (4 fill) but NOT 95: the walk
+    // stops at the first non-crossing level and the remaining 6 rest
+    // at 97 on the ask side.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(97),
+      sz(10),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
+    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+
+    // The 95 bid survives untouched.
+    let surviving_bid: &Order = orderbook::get_bid(orderbook, 0);
+    assert!(surviving_bid.price().value() == px(95).value(), 3);
+    assert!(surviving_bid.filled_size().value() == 0, 4);
+
+    // The taker remainder rests with its fills recorded: 4 of 10.
+    let resting_ask: &Order = orderbook::get_ask(orderbook, 0);
+    assert!(resting_ask.price().value() == px(97).value(), 5);
+    assert!(resting_ask.filled_size().value() == sz(4).value(), 6);
+    assert!(resting_ask.unfilled_size().value() == sz(6).value(), 7);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_bid_taker_fills_at_ask_prices() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Resting asks: 90 x 1 (margin 90) and 95 x 1 (margin 95)
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(90),
+      sz(1),
+      lev(1),
+      test.ctx(),
+    );
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(95),
+      sz(1),
+      lev(1),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, BOB);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Incoming bid at 100 x 2 fills both makers at THEIR prices (90,
+    // then 95) and is fully consumed: both ask levels vanish and the
+    // taker never rests on the bid side.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_asks_length(orderbook) == 0, 1);
+    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+
+    // The taker's margin was computed at ITS limit price (100*2/2 =
+    // 100), not the better fill prices — the vault holds exactly the
+    // makers' 90+95 plus the taker's 100. This documents the current
+    // prototype margin semantics: no maker-price rebate on fills.
+    let vault = pool::get_vault(&pool);
+    assert!(vault.balance() == usdc_of(90 + 95 + 100), 3);
+    assert!(margin_account.balance() == usdc_of(1000 - 100), 4);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_self_match_is_allowed() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Alice rests a bid, then crosses it with her OWN ask. There is no
+    // self-match prevention: the orders fill against each other. This
+    // documents current behavior — one account can take both sides.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
+    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = orderbook::EOrderNotFound)]
+fun test_cancel_with_wrong_side_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    let bid_id = pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    // The id exists but only on the bid side: cancellation scans the
+    // side it was told, so asking on the ask side must abort.
+    pool::close_position(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      bid_id,
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = orderbook::EOrderNotFound)]
+fun test_cancel_on_empty_book_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Nothing was ever placed: cancelling on the fresh pool aborts
+    // instead of touching the vault.
+    pool::close_position(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      order::order_id(1),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_best_bid_and_ask_reflect_book() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Empty book: both sides report the (0, 0) sentinel.
+    let orderbook = pool::get_orderbook(&pool);
+    let (bid_price, bid_size) = orderbook::get_best_bid(orderbook);
+    assert!(bid_price.value() == 0, 1);
+    assert!(bid_size.value() == 0, 2);
+    let (ask_price, ask_size) = orderbook::get_best_ask(orderbook);
+    assert!(ask_price.value() == 0, 3);
+    assert!(ask_size.value() == 0, 4);
+
+    // Bids at 95 and 100: the best bid is the HIGHEST, with its size.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(95),
+      sz(1),
+      lev(2),
+      test.ctx(),
+    );
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(2),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    let (bid_price, bid_size) = orderbook::get_best_bid(orderbook);
+    assert!(bid_price.value() == px(100).value(), 5);
+    assert!(bid_size.value() == sz(2).value(), 6);
+
+    // The ask side is still empty and unaffected by the bids.
+    let (ask_price, ask_size) = orderbook::get_best_ask(orderbook);
+    assert!(ask_price.value() == 0, 7);
+    assert!(ask_size.value() == 0, 8);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_liquidation_skips_partially_filled_order_margin_math() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Max-leverage bid: 100 x 10 at 4x, margin 250 == maintenance, so
+    // its liquidation price is exactly the entry price 100.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(10),
+      lev(4),
+      test.ctx(),
+    );
+
+    transfer::public_transfer(pool, BOB);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_from_address<Pool>(&test, BOB);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Bob's ask fills half the bid: 5 of 10.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(100),
+      sz(5),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::get_orderbook(&pool);
+    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    assert!(resting.filled_size().value() == sz(5).value(), 1);
+
+    // Liquidation evaluates the FULL size (10) against the original
+    // margin (250): threshold stays at the entry price 100, so the
+    // partially filled bid liquidates. NOTE: filled portions are not
+    // margin-adjusted yet — if the check used the unfilled 5 with the
+    // full 250 margin, the buffer would put liquidation at 75 and the
+    // order would survive. This documents the known partial-fill /
+    // liquidation interaction as it exists today.
+    pool::set_token_price(&mut pool, px(100), test.ctx());
+    pool::check_liquidations(&mut pool);
+
+    let orderbook = pool::get_orderbook(&pool);
+    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_order_ids_unique_across_sides() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_from_address<Pool>(&test, ALICE);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Non-crossing bid then ask: ids come from ONE counter shared by
+    // both sides, so they are strictly increasing across sides.
+    let bid_id = pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(90),
+      sz(1),
+      lev(2),
+      test.ctx(),
+    );
+
+    let ask_id = pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(110),
+      sz(1),
+      lev(2),
+      test.ctx(),
+    );
+
+    assert!(!bid_id.eq(ask_id), 1);
+    assert!(bid_id.value() + 1 == ask_id.value(), 2);
+
+    transfer::public_transfer(pool, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
