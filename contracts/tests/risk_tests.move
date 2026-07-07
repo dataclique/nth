@@ -245,3 +245,160 @@ fun refund_of_dust_rounds_to_zero() {
     risk::refund_for_unfilled(units::size(1), units::price(1), lev(1));
   assert!(refund.value() == 0, 0);
 }
+
+// === Property tests (randomized) ===
+
+// Shared domain reductions: prices land in [1 .. 10^12] base units (up to
+// 10^6 USDC per token), sizes in [1 .. 10^10] base units (up to 10^4
+// tokens), and leverage in [1x .. 4x] scaled — 4x is max_leverage(RATE),
+// so every combination is a position the protocol could actually hold, and
+// every u128 intermediate stays far from overflow.
+
+/// Domain: price in [1 .. 10^12], size in [1 .. 10^10] base units,
+/// leverage in [1x .. 4x] scaled. At >= 1x leverage the initial margin can
+/// never exceed the notional value `price * size / FLOAT_SCALING`.
+#[random_test]
+fun random_margin_never_exceeds_balance_proxy(
+  raw_price: u64,
+  raw_size: u64,
+  raw_leverage: u64,
+) {
+  let price = units::price(raw_price % 1_000_000_000_000 + 1);
+  let size = units::size(raw_size % 10_000_000_000 + 1);
+  let fs = constants::float_scaling();
+  let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
+
+  let margin = risk::margin_required(price, size, leverage);
+  let notional =
+    (price.value() as u128) * (size.value() as u128)
+      / (constants::float_scaling() as u128);
+  assert!((margin.value() as u128) <= notional, 0);
+}
+
+/// Domain: same price/size/leverage ranges as above, with unfilled reduced
+/// into [0 .. size]. Cancelling part of an order never refunds more than
+/// the margin charged for the whole order.
+#[random_test]
+fun random_refund_never_exceeds_margin(
+  raw_price: u64,
+  raw_size: u64,
+  raw_unfilled: u64,
+  raw_leverage: u64,
+) {
+  let price = units::price(raw_price % 1_000_000_000_000 + 1);
+  let size_value = raw_size % 10_000_000_000 + 1;
+  let size = units::size(size_value);
+  let unfilled = units::size(raw_unfilled % (size_value + 1));
+  let fs = constants::float_scaling();
+  let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
+
+  let margin = risk::margin_required(price, size, leverage);
+  let refund = risk::refund_for_unfilled(unfilled, price, leverage);
+  assert!(refund.le(margin), 0);
+}
+
+/// Domain: entry and both current prices in [1 .. 10^12] base units, size
+/// in [1 .. 10^10] base units, leverage in [1x .. 4x] scaled. A long
+/// liquidated at some price stays liquidated at every lower price.
+#[random_test]
+fun random_liquidation_monotone_in_price_for_longs(
+  raw_entry: u64,
+  raw_size: u64,
+  raw_leverage: u64,
+  raw_p1: u64,
+  raw_p2: u64,
+) {
+  let entry = units::price(raw_entry % 1_000_000_000_000 + 1);
+  let size = units::size(raw_size % 10_000_000_000 + 1);
+  let fs = constants::float_scaling();
+  let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
+  let margin = risk::margin_required(entry, size, leverage);
+
+  let a = raw_p1 % 1_000_000_000_000 + 1;
+  let b = raw_p2 % 1_000_000_000_000 + 1;
+  if (a == b) return;
+  let (lo, hi) = if (a < b) { (a, b) } else { (b, a) };
+  let lo = units::price(lo);
+  let hi = units::price(hi);
+
+  if (risk::is_liquidated(order::bid(), entry, size, margin, RATE, hi)) {
+    assert!(
+      risk::is_liquidated(order::bid(), entry, size, margin, RATE, lo),
+      0,
+    );
+  }
+}
+
+/// Domain: mirror of the long test — same reductions. A short liquidated
+/// at some price stays liquidated at every higher price.
+#[random_test]
+fun random_liquidation_monotone_in_price_for_shorts(
+  raw_entry: u64,
+  raw_size: u64,
+  raw_leverage: u64,
+  raw_p1: u64,
+  raw_p2: u64,
+) {
+  let entry = units::price(raw_entry % 1_000_000_000_000 + 1);
+  let size = units::size(raw_size % 10_000_000_000 + 1);
+  let fs = constants::float_scaling();
+  let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
+  let margin = risk::margin_required(entry, size, leverage);
+
+  let a = raw_p1 % 1_000_000_000_000 + 1;
+  let b = raw_p2 % 1_000_000_000_000 + 1;
+  if (a == b) return;
+  let (lo, hi) = if (a < b) { (a, b) } else { (b, a) };
+  let lo = units::price(lo);
+  let hi = units::price(hi);
+
+  if (risk::is_liquidated(order::ask(), entry, size, margin, RATE, lo)) {
+    assert!(
+      risk::is_liquidated(order::ask(), entry, size, margin, RATE, hi),
+      0,
+    );
+  }
+}
+
+/// Domain: maintenance rate in [1 .. 100]. Price and size are generous
+/// whole-token multiples (100 USDC, 100 tokens) so the maintenance margin
+/// divides exactly and truncation noise cannot flip either comparison:
+/// margin at exactly max_leverage(rate) covers maintenance (never
+/// born-dead), and one base unit of leverage above it does not.
+#[random_test]
+fun random_max_leverage_boundary(raw_rate: u64) {
+  let rate = raw_rate % 100 + 1;
+  let price = px(100);
+  let size = sz(100);
+  let maintenance = risk::maintenance_margin(price, size, rate);
+
+  let max_lev = risk::max_leverage(rate);
+  let at_max = risk::margin_required(price, size, max_lev);
+  assert!(at_max.ge(maintenance), 0);
+
+  let above = units::leverage(max_lev.value() + 1);
+  let past_max = risk::margin_required(price, size, above);
+  assert!(past_max.lt(maintenance), 1);
+}
+
+/// Domain: price in [1 .. 10^12], size in [1 .. 10^10] base units, two
+/// rates in [1 .. 100] sorted into lo <= hi. Maintenance margin is
+/// monotone in the rate.
+#[random_test]
+fun random_maintenance_margin_scales_with_rate(
+  raw_price: u64,
+  raw_size: u64,
+  raw_r1: u64,
+  raw_r2: u64,
+) {
+  let price = units::price(raw_price % 1_000_000_000_000 + 1);
+  let size = units::size(raw_size % 10_000_000_000 + 1);
+  let r1 = raw_r1 % 100 + 1;
+  let r2 = raw_r2 % 100 + 1;
+  let (lo, hi) = if (r1 <= r2) { (r1, r2) } else { (r2, r1) };
+  assert!(
+    risk::maintenance_margin(price, size, lo)
+      .le(risk::maintenance_margin(price, size, hi)),
+    0,
+  );
+}
