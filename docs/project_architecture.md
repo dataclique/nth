@@ -43,8 +43,9 @@ account ownership, non-zero price and size, the leverage cap, and a non-zero
 margin (dust notionals whose margin truncates to zero abort with `EZeroMargin`).
 Leverage above `100 / maintenance_margin_rate` (or zero leverage) aborts with
 `EInvalidLeverage` — above that bound the initial margin is below the
-maintenance margin, so the position would be born liquidatable. See
-[liquidation.md](liquidation.md).
+maintenance margin, so the position would be born liquidatable. Margin formulas,
+collateral flow, and the leverage cap are in [margin.md](margin.md); liquidation
+thresholds are in [liquidation.md](liquidation.md).
 
 Matching enforces self-trade prevention: an incoming order that would cross a
 resting order from the same margin account aborts with `ESelfMatch` rather than
@@ -117,9 +118,10 @@ sender. This pins the account to its recorded `owner`, which `deposit` and
 ### Units and Risk
 
 Prices, sizes, leverage, and USDC amounts are typed fixed-point quantities
-(`strike::units`) scaled by 10^6, matching USDC's 6 decimals. All cross-quantity
-arithmetic lives in `strike::risk` and runs in `u128`. See
-[float_scaling.md](float_scaling.md).
+(`strike::units`) scaled by $10^6$, matching USDC's 6 decimals. All
+cross-quantity arithmetic lives in `strike::risk` and runs in `u128`. See
+[float_scaling.md](float_scaling.md) for encoding and [margin.md](margin.md) for
+the financial formulas.
 
 ## User Flow
 
