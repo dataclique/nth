@@ -1,15 +1,15 @@
 #[test_only]
 module strike::vault_tests;
 
-use strike::constants;
+use strike::units;
 use strike::vault;
 use sui::coin::mint_for_testing;
-use sui::test_utils::destroy;
+use std::unit_test::destroy;
 use usdc::usdc::USDC;
 
 /// Scale a whole-USDC amount into base units (see docs/float_scaling.md).
 fun scaled(amount: u64): u64 {
-  amount * constants::float_scaling()
+  amount * units::float_scaling()
 }
 
 #[test]

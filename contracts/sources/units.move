@@ -1,16 +1,30 @@
 /// Fixed-point market quantities.
 ///
 /// Prices, sizes, leverage, and USDC amounts are all scaled by
-/// `constants::float_scaling()`, but they are NOT interchangeable:
+/// `float_scaling()`, but they are NOT interchangeable:
 /// multiplying two scaled values yields a double-scaled result, and mixing
 /// units silently corrupts margin math. Each quantity therefore gets its
 /// own type; the formulas that combine them (and juggle the scaling
 /// factors) live in `strike::risk`.
 module strike::units;
 
+// === Fixed-Point Scale ===
+
+/// Fixed-point scale for prices, sizes, and leverage. MUST equal
+/// 10^(USDC decimals) = 10^6: margin math relies on one factor of
+/// FLOAT_SCALING cancelling against USDC's base-unit denominator so
+/// `risk::margin_required` lands in `Balance<USDC>` base units. USDC has 6
+/// decimals (`6, // decimals` in the `create_currency` call):
+/// https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move
+const FLOAT_SCALING: u64 = 1_000_000;
+
+public fun float_scaling(): u64 {
+  FLOAT_SCALING
+}
+
 // === Price ===
 
-/// USDC-per-token price, scaled by `constants::float_scaling()`.
+/// USDC-per-token price, scaled by `float_scaling()`.
 public struct Price has copy, drop, store { value: u64 }
 
 public fun price(value: u64): Price { Price { value } }
@@ -49,7 +63,7 @@ public use fun price_ge as Price.ge;
 
 // === Size ===
 
-/// Token quantity, scaled by `constants::float_scaling()`.
+/// Token quantity, scaled by `float_scaling()`.
 public struct Size has copy, drop, store { value: u64 }
 
 public fun size(value: u64): Size { Size { value } }
@@ -91,7 +105,7 @@ public use fun size_eq as Size.eq;
 
 // === Leverage ===
 
-/// Position leverage multiplier, scaled by `constants::float_scaling()`
+/// Position leverage multiplier, scaled by `float_scaling()`
 /// (2x leverage = `2 * float_scaling()`).
 public struct Leverage has copy, drop, store { value: u64 }
 
@@ -119,7 +133,7 @@ public use fun leverage_le as Leverage.le;
 /// Because 10^6 is also `float_scaling()`, dividing a
 /// price-times-size product (double-scaled) by scaled leverage lands
 /// exactly in base units — `risk::margin_required` depends on this and
-/// `constants` documents the coupling.
+/// `FLOAT_SCALING` above documents the coupling.
 public struct UsdcAmount has copy, drop, store { value: u64 }
 
 /// A u128 amount does not fit u64 base units. Move's `as u64` silently
@@ -154,6 +168,25 @@ public fun usdc_le(amount: UsdcAmount, other: UsdcAmount): bool {
 }
 
 public use fun usdc_le as UsdcAmount.le;
+
+public fun usdc_add(amount: UsdcAmount, other: UsdcAmount): UsdcAmount {
+  UsdcAmount { value: amount.value + other.value }
+}
+
+public use fun usdc_add as UsdcAmount.add;
+
+/// Aborts on underflow, so callers state the `amount >= other` invariant.
+public fun usdc_sub(amount: UsdcAmount, other: UsdcAmount): UsdcAmount {
+  UsdcAmount { value: amount.value - other.value }
+}
+
+public use fun usdc_sub as UsdcAmount.sub;
+
+public fun usdc_min(amount: UsdcAmount, other: UsdcAmount): UsdcAmount {
+  if (amount.value <= other.value) { amount } else { other }
+}
+
+public use fun usdc_min as UsdcAmount.min;
 
 public fun usdc_ge(amount: UsdcAmount, other: UsdcAmount): bool {
   amount.value >= other.value
