@@ -1,119 +1,164 @@
 # Liquidation Price Calculation
 
-Used formulas from
-[ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
-
 Liquidation occurs when the oracle price crosses a position's liquidation
 threshold: locked margin falls to the maintenance margin level (or below). The
 position is then removed from the book; its collateral stays in the pool vault.
 
-## Formulas
+Formulas follow
+[ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
+Initial and maintenance margin definitions, collateral flow, and the leverage
+cap are in [margin.md](margin.md).
 
-### For Long (Bid) Positions
+## Notation
 
-The liquidation price for a long position is calculated as:
+| Symbol               | Meaning                           |
+| -------------------- | --------------------------------- |
+| $P_e$                | Entry price                       |
+| $P$                  | Current (oracle) price            |
+| $S$                  | Position size                     |
+| $L$                  | Leverage                          |
+| $r_m$                | Maintenance margin rate (percent) |
+| $M$                  | Locked margin (USDC)              |
+| $M_i$                | Initial margin at entry           |
+| $M_{\mathrm{maint}}$ | Maintenance margin                |
+| $\Delta P$           | Price buffer above maintenance (defined below) |
+| $L_{\max}$           | Highest leverage whose $M_i$ covers $M_{\mathrm{maint}}$, $100 / r_m$ |
 
-$$LiquidationPrice_{long} = EntryPrice - \frac{InitialMargin - MaintenanceMargin}{PositionSize}$$
+$$
+M_i = \frac{P_e \cdot S}{L}
+\qquad
+M_{\mathrm{maint}} = P_e \cdot S \cdot \frac{r_m}{100}
+$$
 
-Where:
+## Price Buffer
 
-- $InitialMargin = \frac{PositionSize \times EntryPrice}{Leverage}$
-- $MaintenanceMargin = PositionSize \times EntryPrice \times \frac{MaintenanceMarginRate}{100}$
+The margin cushion above maintenance, spread per unit of size:
 
-### For Short (Ask) Positions
+$$
+\Delta P = \frac{M - M_{\mathrm{maint}}}{S}
+$$
 
-The liquidation price for a short position is calculated same like for long, but
-with another sign:
+For a freshly opened position with full initial margin, $M = M_i$ and
+$\Delta P = (M_i - M_{\mathrm{maint}}) / S$.
 
-$$LiquidationPrice_{short} = EntryPrice + \frac{InitialMargin - MaintenanceMargin}{PositionSize}$$
+## Liquidation Prices
+
+### Long (bid)
+
+$$
+P_{\mathrm{liq, long}} = P_e - \Delta P
+= P_e - \frac{M_i - M_{\mathrm{maint}}}{S}
+$$
+
+Substituting the margin formulas:
+
+$$
+P_{\mathrm{liq, long}}
+= P_e - \frac{P_e \cdot S / L - P_e \cdot S \cdot r_m / 100}{S}
+= P_e \left(1 - \frac{1}{L} + \frac{r_m}{100}\right)
+$$
+
+### Short (ask)
+
+$$
+P_{\mathrm{liq, short}} = P_e + \Delta P
+= P_e + \frac{M_i - M_{\mathrm{maint}}}{S}
+$$
+
+## Liquidation Condition
+
+`risk::is_liquidated` evaluates in two stages:
+
+1. **Margin below maintenance** — if $M < M_{\mathrm{maint}}$, liquidate at any
+   price. (This guards the degenerate case where $M_i - M_{\mathrm{maint}}$
+   would underflow for $L > L_{\max}$.)
+2. **Price threshold** — otherwise compute $\Delta P$ and compare:
+   - **Long:** liquidated when $P \le P_e - \Delta P$.
+   - **Short:** liquidated when $P \ge P_e + \Delta P$.
+
+For a long, if $\Delta P \ge P_e$ the liquidation price would be at or below
+zero — no downward move can reach it, so the position is never liquidated on the
+downside.
 
 ## Leverage Cap
 
-Initial margin covers the maintenance margin exactly when:
+Initial margin covers maintenance exactly when:
 
-$$Leverage \le \frac{100}{MaintenanceMarginRate}$$
+$$
+L \le \frac{100}{r_m} = L_{\max}
+$$
 
-`risk::max_leverage` computes this bound, and `pool::place_leveraged_order`
-enforces it at order placement: zero leverage or leverage above the cap aborts
-with `EInvalidLeverage`. Above the cap the initial margin is below the
-maintenance margin, so the position would be born past its liquidation
-threshold.
+`risk::max_leverage` computes this bound; `pool::place_leveraged_order` enforces
+it at placement. Above the cap, $M_i < M_{\mathrm{maint}}$ and the position
+would be born past its liquidation threshold (`EInvalidLeverage`).
 
-At **exactly** the maximum leverage the initial and maintenance margins are
-equal, the margin buffer is zero, and the liquidation price equals the entry
-price: the position liquidates the moment the price touches entry.
+At **exactly** $L_{\max}$:
+
+$$
+M_i = M_{\mathrm{maint}}
+\quad\Longrightarrow\quad
+\Delta P = 0
+\quad\Longrightarrow\quad
+P_{\mathrm{liq}} = P_e
+$$
+
+The position liquidates the moment price touches entry.
 
 ## Example Calculations
 
-### Mid-Range: 2x Long Position
+### Mid-range: 2× long
 
-Given:
+Given: $P_e = 100$, $S = 2$, $L = 2$, $r_m = 25$ ($L_{\max} = 4$).
 
-- Entry Price = 100 USDC
-- Position Size = 2
-- Leverage = 2
-- Maintenance Margin Rate = 25% (max leverage = 100 / 25 = 4)
+$$
+M_i = \frac{2 \times 100}{2} = 100\,\text{USDC}
+$$
 
-Calculations:
+$$
+M_{\mathrm{maint}} = 2 \times 100 \times \frac{25}{100} = 50\,\text{USDC}
+$$
 
-1. Initial Margin = $\frac{2 \times 100}{2} = 100$ USDC
-2. Maintenance Margin = $2 \times 100 \times \frac{25}{100} = 50$ USDC
-3. Liquidation Price = $100 - \frac{100 - 50}{2} = 75$ USDC
+$$
+P_{\mathrm{liq, long}} = 100 - \frac{100 - 50}{2} = 75\,\text{USDC}
+$$
 
-The position carries a 25-USDC-per-unit buffer below entry and is liquidated
-when the price drops to 75 USDC.
+The position carries a 25 USDC-per-unit buffer below entry.
 
-### Boundary: 4x Long Position at Maximum Leverage
+### Boundary: 4× long at maximum leverage
 
-Given:
+Given: $P_e = 95$, $S = 5$, $L = 4$, $r_m = 25$.
 
-- Entry Price = 95 USDC
-- Position Size = 5
-- Leverage = 4 (exactly the maximum for a 25% maintenance margin rate)
-- Maintenance Margin Rate = 25%
+$$
+M_i = \frac{5 \times 95}{4} = 118.75\,\text{USDC}
+$$
 
-Calculations:
+$$
+M_{\mathrm{maint}} = 5 \times 95 \times \frac{25}{100} = 118.75\,\text{USDC}
+$$
 
-1. Initial Margin = $\frac{5 \times 95}{4} = 118.75$ USDC
-2. Maintenance Margin = $5 \times 95 \times \frac{25}{100} = 118.75$ USDC
-3. Liquidation Price = $95 - \frac{118.75 - 118.75}{5} = 95$ USDC
+$$
+P_{\mathrm{liq, long}} = 95 - \frac{118.75 - 118.75}{5} = 95\,\text{USDC}
+$$
 
-This is the boundary case: initial margin equals maintenance margin, the buffer
-is zero, and the liquidation price equals the entry price. Any price at or below
-95 USDC liquidates the position immediately. One step of leverage above this is
-rejected at placement with `EInvalidLeverage`.
+Initial margin equals maintenance; any price at or below entry liquidates
+immediately. One step of leverage above this is rejected at placement.
 
 ## Implementation Notes
 
 All margin and liquidation formulas live in `strike::risk` (`margin_required`,
 `maintenance_margin`, `max_leverage`, `is_liquidated`). Every intermediate
-product runs in `u128`: double-scaled values like $Price \times Size$ overflow
-`u64` for realistic inputs.
-
-`risk::is_liquidated` evaluates the formulas as follows:
-
-1. If the margin is **strictly below** the maintenance margin, the position is
-   liquidated at any price. (The naive $InitialMargin - MaintenanceMargin$
-   subtraction would underflow-abort here; the guard makes the degenerate case
-   explicit instead.) A margin exactly equal to maintenance falls through with a
-   zero buffer, which is what makes the max-leverage boundary case liquidate at
-   the entry price.
-2. Otherwise it computes the per-unit price buffer
-   $\frac{Margin - MaintenanceMargin}{PositionSize}$ and compares:
-   - **Long**: liquidated when $CurrentPrice \le EntryPrice - Buffer$. If the
-     buffer is at or above the entry price, the liquidation price would be at or
-     below zero — no price drop can ever reach it, so the long is never
-     liquidated on the downside.
-   - **Short**: liquidated when $CurrentPrice \ge EntryPrice + Buffer$.
+product runs in `u128`: double-scaled values like $P \cdot S$ overflow `u64` for
+realistic inputs.
 
 `pool::check_liquidations` drives the sweep: it rejects stale oracle prices
 (older than `pool::max_oracle_staleness_ms()`), then reads the current price
 from the pool's oracle and calls `orderbook::remove_liquidated_bids` /
-`remove_liquidated_asks`, each a single O(n) pass that removes every position
+`remove_liquidated_asks`, each a single $O(n)$ pass that removes every position
 past its threshold. Each removal emits a `PositionLiquidated` event carrying
 both the position's entry price and the oracle price that triggered it. The
-oracle price itself only moves through `pool::update_price`, which is gated by
-the pool's `PriceCap` capability.
+oracle price only moves through `pool::update_price`, gated by the pool's
+`PriceCap` capability.
 
-The maintenance margin rate is a per-pool parameter that can be adjusted based
-on market conditions and risk management requirements.
+The maintenance margin rate $r_m$ is a per-pool parameter adjustable for risk
+management. See [margin.md](margin.md) for how margin is locked, refunded, and
+swept.

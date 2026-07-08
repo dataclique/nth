@@ -51,25 +51,75 @@ Every formula that combines quantities — and therefore juggles the scaling
 factors — lives in `strike::risk`, and every intermediate product runs in
 `u128`: a double-scaled product like `price * size` overflows `u64` for
 realistic inputs. No other module multiplies, divides, or rescales these
-quantities.
+quantities. Human-readable formulas are in [margin.md](margin.md) and
+[liquidation.md](liquidation.md).
 
-Examples from `strike::risk`:
+### Notation
+
+| Symbol               | Meaning                                                     |
+| -------------------- | ----------------------------------------------------------- |
+| $s$                  | Fixed-point scale, $10^6$ (`constants::float_scaling()`)    |
+| $x$, $\hat{x}$       | A human-readable value and its on-chain form, $\hat{x} = x \cdot s$ |
+| $P$, $\hat{P}$       | Price (USDC per token)                                      |
+| $S$, $\hat{S}$       | Position size (tokens)                                      |
+| $L$, $\hat{L}$       | Leverage multiplier                                         |
+| $r_m$                | Maintenance margin rate, in percent                         |
+| $M$                  | Locked margin, in USDC base units                           |
+| $M_i$                | Initial margin, in USDC base units                          |
+| $M_{\mathrm{maint}}$ | Maintenance margin, in USDC base units                      |
+| $\Delta P$           | Liquidation price buffer (see [liquidation.md](liquidation.md)) |
+
+USDC amounts ($M$, $M_i$, $M_{\mathrm{maint}}$) are already integers in base
+units at scale $s$ (1 USDC = $10^6$ base units) and carry no hat: they are
+never rescaled, only produced by formulas that cancel the scaling factors.
+
+### Initial margin
+
+Human form: $M_i = P \cdot S / L$.
+
+On-chain, each factor carries one factor of $s$, so the raw product is scaled by
+$s^2$; dividing by $\hat{L}$ removes one $s$:
+
+$$
+M_i = \frac{\hat{P} \cdot \hat{S}}{\hat{L}}
+$$
 
 ```move
-// margin_required: price * size is double-scaled; dividing by scaled
-// leverage cancels one factor, landing in USDC base units.
 let value =
   (price.value() as u128) * (size.value() as u128)
     / (leverage.value() as u128);
+```
 
-// maintenance_margin: divide one float scaling back out of the
-// double-scaled size * price product.
+### Maintenance margin
+
+Human form: $M_{\mathrm{maint}} = P \cdot S \cdot r_m / 100$.
+
+The product $\hat{P} \cdot \hat{S}$ is scaled by $s^2$; dividing by $s$ restores
+USDC base units:
+
+$$
+M_{\mathrm{maint}} =
+  \frac{\hat{P} \cdot \hat{S} \cdot r_m}{100 \cdot s}
+$$
+
+```move
 let value =
   (size.value() as u128) * (price.value() as u128)
     * (maintenance_margin_rate as u128) / 100 / float_scaling;
+```
 
-// is_liquidated: dividing a base-unit margin by a scaled size loses the
-// scaling, so multiply it back in to get a scaled price buffer.
+### Liquidation price buffer
+
+Human form: $\Delta P = (M - M_{\mathrm{maint}}) / S$.
+
+$M$ is in base units (scale $s$) while $\hat{S}$ is scaled by $s$, so multiply
+by $s$ to recover a scaled price delta:
+
+$$
+\widehat{\Delta P} = \frac{(M - M_{\mathrm{maint}}) \cdot s}{\hat{S}}
+$$
+
+```move
 let buffer =
   ((margin.value() - maintenance.value()) as u128) * float_scaling
     / (size.value() as u128);
