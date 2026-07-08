@@ -98,3 +98,26 @@ fun leverage_is_zero_boundary() {
   assert!(units::leverage(0).is_zero(), 0);
   assert!(!units::leverage(1).is_zero(), 1);
 }
+
+// === Checked narrowing (usdc_from_u128) ===
+
+#[test]
+fun usdc_from_u128_at_u64_max_succeeds() {
+  // The largest value that fits u64 narrows without loss.
+  let amount = units::usdc_from_u128(MAX_U64 as u128);
+  assert!(amount.value() == MAX_U64, 0);
+}
+
+#[test]
+fun usdc_from_u128_below_max_is_exact() {
+  let amount = units::usdc_from_u128(1_000_000);
+  assert!(amount.value() == 1_000_000, 0);
+}
+
+#[test, expected_failure(abort_code = units::EOverflow)]
+fun usdc_from_u128_above_u64_max_aborts() {
+  // One past u64::MAX must abort rather than silently truncate. (Also
+  // confirms the private EOverflow constant is usable in expected_failure
+  // from a sibling test module — no `public` needed.)
+  let _ = units::usdc_from_u128((MAX_U64 as u128) + 1);
+}

@@ -58,6 +58,15 @@ checks it belongs to that pool), so only the cap holder can move the oracle
 price — and with it, every liquidation decision. There is no other production
 path to the price.
 
+This is a deliberate trust trade-off. Because the cap is the sole price path,
+**losing it freezes the pool's price at its last value**: `update_price` can
+never be called again, `check_liquidations` sweeps forever against a stale
+price, and there is no re-issuance path (adding one would reintroduce the admin
+authority the capability removes). Cap custody is therefore a liveness-critical
+responsibility — hold it in a durable multisig, not a hot key. A max-staleness
+guard on the oracle read is tracked as a follow-up; it bounds bad liquidations
+but cannot substitute for cap custody.
+
 ### OrderBook
 
 The OrderBook maintains the resting orders for a specific token:
