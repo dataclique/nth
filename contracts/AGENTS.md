@@ -178,4 +178,5 @@ they can never be removed or changed, only reimplemented. `public(package)`,
   production API.
 - **Never weaken an assertion, tolerance, or expected abort code to make a test
   pass.** If the test disagrees with the code, one of them is wrong — determine
-  which against [docs/liquidation.md](../docs/liquidation.md) and fix that one.
+  which against [docs/margin.md](../docs/margin.md) and
+  [docs/liquidation.md](../docs/liquidation.md) and fix that one.

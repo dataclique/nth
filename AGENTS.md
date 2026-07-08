@@ -8,7 +8,8 @@ govern — read the relevant one before touching that directory.
 
 Strike is a prototype perpetuals DEX on Sui: a central-limit orderbook with
 leveraged, margin-backed orders, USDC collateral, and ByBit-style liquidation
-math (see [docs/liquidation.md](docs/liquidation.md)).
+math (see [docs/margin.md](docs/margin.md) and
+[docs/liquidation.md](docs/liquidation.md)).
 
 | Directory    | Contents                                                                 | Standards                                  |
 | ------------ | ------------------------------------------------------------------------ | ------------------------------------------ |
