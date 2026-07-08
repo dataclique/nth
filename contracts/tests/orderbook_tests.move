@@ -42,7 +42,7 @@ fun setup(test: &mut Scenario) {
   {
     // pool::new shares the Pool and returns its PriceCap.
     let price_cap = pool::new(
-      constants::default_maintance_margin_rate(),
+      constants::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
@@ -1388,7 +1388,7 @@ fun test_wrong_pool_cap_aborts() {
     // Bob creates a second pool: pool::new shares it and returns its
     // PriceCap directly, distinct from Alice's cap for the setup pool.
     let cap_b = pool::new(
-      constants::default_maintance_margin_rate(),
+      constants::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
