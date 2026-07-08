@@ -1,7 +1,6 @@
 #[test_only]
 module strike::pool_tests;
 
-use strike::constants;
 use strike::order;
 use strike::orderbook;
 use strike::pool::{Self, Pool, PriceCap};
@@ -25,22 +24,22 @@ use usdc::usdc::USDC;
 const ALICE: address = @0xA;
 const BOB: address = @0xB;
 
-fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
+fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
-fun sz(value: u64): Size { units::size(value*constants::float_scaling()) }
+fun sz(value: u64): Size { units::size(value*units::float_scaling()) }
 
 fun lev(value: u64): Leverage {
-  units::leverage(value*constants::float_scaling())
+  units::leverage(value*units::float_scaling())
 }
 
-fun usdc_of(value: u64): u64 { value*constants::float_scaling() }
+fun usdc_of(value: u64): u64 { value*units::float_scaling() }
 
 fun setup(test: &mut Scenario) {
   next_tx(test, ALICE);
   {
     // pool::new shares the Pool and returns its PriceCap.
     let price_cap = pool::new(
-      constants::default_maintenance_margin_rate(),
+      pool::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
@@ -693,7 +692,7 @@ fun test_update_price_with_foreign_cap_aborts() {
   next_tx(&mut test, BOB);
   {
     let cap_b = pool::new(
-      constants::default_maintenance_margin_rate(),
+      pool::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
@@ -849,6 +848,163 @@ fun test_fully_filled_taker_margin_stays_in_vault() {
 
     return_shared(pool);
     margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+// === Funding ===
+
+// One hour in epoch milliseconds — the minimum gap between funding rounds.
+const FUNDING_INTERVAL_MS: u64 = 3_600_000;
+
+#[test]
+fun test_update_funding_moves_margin_from_longs_to_shorts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  // Alice rests a bid at 99, Bob an ask at 103 — they do not cross, so
+  // both rest. Mid = 101 against the oracle's 100: a +1% divergence caps
+  // at 100 bps and longs (bids) pay.
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+    pool::place_leveraged_order(
+      &mut pool, &mut margin_account, order::bid(),
+      px(99), sz(4), lev(2), test.ctx(),
+    );
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+    pool::place_leveraged_order(
+      &mut pool, &mut margin_account, order::ask(),
+      px(103), sz(4), lev(2), test.ctx(),
+    );
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  // Advance past the funding interval; funding is permissionless.
+  test.later_epoch(FUNDING_INTERVAL_MS, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::update_funding(&mut pool, test.ctx());
+
+    // Payment = notional (99*4 = 396) * 100 bps = 3.96 USDC.
+    // Bid margin 99*4/2 = 198 → 198 - 3.96; ask margin 103*4/2 = 206 → +3.96.
+    let orderbook = pool::borrow_orderbook(&pool);
+    let bid = orderbook::bid_at(orderbook, 0);
+    let ask = orderbook::ask_at(orderbook, 0);
+    assert!(bid.margin().value() == usdc_of(198) - usdc_of(396)/100, 0);
+    assert!(ask.margin().value() == usdc_of(206) + usdc_of(396)/100, 1);
+
+    // Margin only moved between orders — the vault total is unchanged.
+    let vault = pool::borrow_vault(&pool);
+    assert!(vault.balance() == usdc_of(198 + 206), 2);
+    return_shared(pool);
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EFundingTooSoon)]
+fun test_update_funding_before_interval_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  // last_funding_time starts at 0 and the clock starts at 0, so a first
+  // round before the interval elapses is too soon.
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::update_funding(&mut pool, test.ctx());
+    return_shared(pool);
+  };
+  end(test);
+}
+
+#[test]
+fun test_update_funding_with_one_empty_side_is_noop() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  // Only a bid rests; with no ask there is no counterparty, so funding
+  // stamps the clock without moving margin.
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+    pool::place_leveraged_order(
+      &mut pool, &mut margin_account, order::bid(),
+      px(99), sz(4), lev(2), test.ctx(),
+    );
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  test.later_epoch(FUNDING_INTERVAL_MS, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::update_funding(&mut pool, test.ctx());
+
+    let orderbook = pool::borrow_orderbook(&pool);
+    let bid = orderbook::bid_at(orderbook, 0);
+    assert!(bid.margin().value() == usdc_of(198), 0);
+    return_shared(pool);
+  };
+  end(test);
+}
+
+#[test]
+fun test_second_funding_round_requires_another_interval() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+    pool::place_leveraged_order(
+      &mut pool, &mut margin_account, order::bid(),
+      px(99), sz(4), lev(2), test.ctx(),
+    );
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+    pool::place_leveraged_order(
+      &mut pool, &mut margin_account, order::ask(),
+      px(103), sz(4), lev(2), test.ctx(),
+    );
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  // Two rounds one interval apart both succeed; each stamps the clock.
+  test.later_epoch(FUNDING_INTERVAL_MS, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::update_funding(&mut pool, test.ctx());
+    return_shared(pool);
+  };
+  test.later_epoch(FUNDING_INTERVAL_MS, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::update_funding(&mut pool, test.ctx());
+
+    // Two rounds of 3.96 USDC each moved off the bid.
+    let orderbook = pool::borrow_orderbook(&pool);
+    let bid = orderbook::bid_at(orderbook, 0);
+    assert!(bid.margin().value() == usdc_of(198) - 2*usdc_of(396)/100, 0);
+    return_shared(pool);
   };
   end(test);
 }

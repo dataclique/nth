@@ -1,25 +1,24 @@
 #[test_only]
 module strike::risk_tests;
 
-use strike::constants;
 use strike::order;
 use strike::risk;
 use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
 
 /// Maintenance margin rate used across the boundary tests (25%), matching
-/// `constants::default_maintenance_margin_rate()`.
+/// `pool::default_maintenance_margin_rate()`.
 const RATE: u64 = 25;
 
-fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
+fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
-fun sz(value: u64): Size { units::size(value*constants::float_scaling()) }
+fun sz(value: u64): Size { units::size(value*units::float_scaling()) }
 
 fun lev(value: u64): Leverage {
-  units::leverage(value*constants::float_scaling())
+  units::leverage(value*units::float_scaling())
 }
 
 fun us(value: u64): UsdcAmount {
-  units::usdc(value*constants::float_scaling())
+  units::usdc(value*units::float_scaling())
 }
 
 // === margin_required ===
@@ -192,7 +191,7 @@ fun short_with_huge_synthetic_margin_survives_extreme_prices() {
   // A 10^9 USDC margin on a 1-token short pushes the liquidation price to
   // ~10^15 base units; `entry + buffer` must not overflow in u128, and no
   // realistic price reaches it.
-  let margin = units::usdc(1_000_000_000 * constants::float_scaling());
+  let margin = units::usdc(1_000_000_000 * units::float_scaling());
   assert!(
     !risk::is_liquidated(
       order::ask(), px(100), sz(1), margin, RATE, px(1_000_000),
@@ -227,35 +226,38 @@ fun margin_below_maintenance_liquidates_at_any_price() {
 // === refund_for_unfilled ===
 
 #[test]
-fun refund_for_untouched_order_equals_margin_required() {
-  // Same formula as margin_required, so a full cancel returns exactly what
-  // was locked — including the truncation lev 3 forces.
+fun refund_for_untouched_order_equals_margin() {
+  // A fully unfilled cancel returns the whole stored margin exactly.
   let locked = risk::margin_required(px(100), sz(10), lev(3));
-  let refund = risk::refund_for_unfilled(sz(10), px(100), lev(3));
+  let refund = risk::refund_for_unfilled(locked, sz(10), sz(10));
   assert!(refund.value() == locked.value(), 0);
 }
 
 #[test]
 fun refund_for_half_filled_order_is_half_the_margin() {
   let locked = risk::margin_required(px(100), sz(10), lev(2));
-  let refund = risk::refund_for_unfilled(sz(5), px(100), lev(2));
+  let refund = risk::refund_for_unfilled(locked, sz(5), sz(10));
   assert!(refund.value() * 2 == locked.value(), 0);
 }
 
 #[test]
 fun refund_rounds_down() {
-  // 1 base unit of size at price 100 with lev 3: 10^8 / (3 * 10^6) floors
-  // to 33 base units.
-  let refund = risk::refund_for_unfilled(units::size(1), px(100), lev(3));
-  assert!(refund.value() == 33, 0);
+  // 100 USDC of margin over a size of 3 tokens, cancelling 1 token:
+  // 10^8 / 3 floors to 33_333_333 base units.
+  let margin = units::usdc(100 * units::float_scaling());
+  let refund = risk::refund_for_unfilled(margin, sz(1), sz(3));
+  assert!(refund.value() == 33_333_333, 0);
 }
 
 #[test]
 fun refund_of_dust_rounds_to_zero() {
-  // 1 base unit of size at a 1-base-unit price refunds 10^-12 USDC, which
-  // floors to 0: the protocol keeps the dust.
-  let refund =
-    risk::refund_for_unfilled(units::size(1), units::price(1), lev(1));
+  // 1 base unit of margin spread over 2 base units of size: cancelling 1
+  // refunds 0.5 base units, which floors to 0 — the protocol keeps dust.
+  let refund = risk::refund_for_unfilled(
+    units::usdc(1),
+    units::size(1),
+    units::size(2),
+  );
   assert!(refund.value() == 0, 0);
 }
 
@@ -278,13 +280,13 @@ fun random_margin_never_exceeds_balance_proxy(
 ) {
   let price = units::price(raw_price % 1_000_000_000_000 + 1);
   let size = units::size(raw_size % 10_000_000_000 + 1);
-  let fs = constants::float_scaling();
+  let fs = units::float_scaling();
   let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
 
   let margin = risk::margin_required(price, size, leverage);
   let notional =
     (price.value() as u128) * (size.value() as u128)
-      / (constants::float_scaling() as u128);
+      / (units::float_scaling() as u128);
   assert!((margin.value() as u128) <= notional, 0);
 }
 
@@ -302,11 +304,11 @@ fun random_refund_never_exceeds_margin(
   let size_value = raw_size % 10_000_000_000 + 1;
   let size = units::size(size_value);
   let unfilled = units::size(raw_unfilled % (size_value + 1));
-  let fs = constants::float_scaling();
+  let fs = units::float_scaling();
   let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
 
   let margin = risk::margin_required(price, size, leverage);
-  let refund = risk::refund_for_unfilled(unfilled, price, leverage);
+  let refund = risk::refund_for_unfilled(margin, unfilled, size);
   assert!(refund.le(margin), 0);
 }
 
@@ -323,7 +325,7 @@ fun random_liquidation_monotone_in_price_for_longs(
 ) {
   let entry = units::price(raw_entry % 1_000_000_000_000 + 1);
   let size = units::size(raw_size % 10_000_000_000 + 1);
-  let fs = constants::float_scaling();
+  let fs = units::float_scaling();
   let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
   let margin = risk::margin_required(entry, size, leverage);
 
@@ -354,7 +356,7 @@ fun random_liquidation_monotone_in_price_for_shorts(
 ) {
   let entry = units::price(raw_entry % 1_000_000_000_000 + 1);
   let size = units::size(raw_size % 10_000_000_000 + 1);
-  let fs = constants::float_scaling();
+  let fs = units::float_scaling();
   let leverage = units::leverage(fs + raw_leverage % (3 * fs + 1));
   let margin = risk::margin_required(entry, size, leverage);
 
@@ -414,4 +416,74 @@ fun random_maintenance_margin_scales_with_rate(
       .le(risk::maintenance_margin(price, size, hi)),
     0,
   );
+}
+
+// === funding_rate_bps ===
+
+#[test]
+fun funding_rate_longs_pay_when_mid_above_oracle() {
+  // mid = (99 + 103) / 2 = 101, oracle = 100: divergence 1% = 100 bps,
+  // exactly at the cap. Longs bid the book above spot, so bids pay.
+  let (rate, paying_side) =
+    risk::funding_rate_bps(px(99), px(103), px(100));
+  assert!(rate == 100, 0);
+  assert!(paying_side.is_bid(), 1);
+}
+
+#[test]
+fun funding_rate_shorts_pay_when_mid_below_oracle() {
+  // mid = (97 + 101) / 2 = 99, oracle = 100: divergence 1% = 100 bps,
+  // asks pay.
+  let (rate, paying_side) =
+    risk::funding_rate_bps(px(97), px(101), px(100));
+  assert!(rate == 100, 0);
+  assert!(!paying_side.is_bid(), 1);
+}
+
+#[test]
+fun funding_rate_zero_when_mid_equals_oracle() {
+  let (rate, _) = risk::funding_rate_bps(px(99), px(101), px(100));
+  assert!(rate == 0, 0);
+}
+
+#[test]
+fun funding_rate_caps_at_max() {
+  // mid = 150 vs oracle 100: raw divergence 50% = 5000 bps, capped.
+  let (rate, paying_side) =
+    risk::funding_rate_bps(px(140), px(160), px(100));
+  assert!(rate == risk::max_funding_rate_bps(), 0);
+  assert!(paying_side.is_bid(), 1);
+}
+
+#[test]
+fun funding_rate_rounds_down() {
+  // mid = (100 + 104) / 2 = 102 vs oracle 101: divergence 1/101 in bps
+  // is 10_000 / 101 = 99.0099..., floored to 99.
+  let (rate, _) = risk::funding_rate_bps(px(100), px(104), px(101));
+  assert!(rate == 99, 0);
+}
+
+// === funding_payment ===
+
+#[test]
+fun funding_payment_is_notional_times_rate() {
+  // Notional 100 * 10 = 1000 USDC at 100 bps (1%) = 10 USDC.
+  let payment = risk::funding_payment(px(100), sz(10), 100);
+  assert!(payment.value() == us(10).value(), 0);
+}
+
+#[test]
+fun funding_payment_rounds_down() {
+  // Notional 1 USDC at 3 bps: 10^6 * 3 / 10^4 = 300 base units exactly;
+  // with 1 base unit of notional instead, 1 * 3 / 10^4 floors to 0.
+  let whole = risk::funding_payment(px(1), sz(1), 3);
+  assert!(whole.value() == 300, 0);
+  let dust = risk::funding_payment(units::price(1), units::size(1), 3);
+  assert!(dust.value() == 0, 1);
+}
+
+#[test]
+fun funding_payment_zero_rate_is_zero() {
+  let payment = risk::funding_payment(px(100), sz(10), 0);
+  assert!(payment.value() == 0, 0);
 }
