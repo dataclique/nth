@@ -67,6 +67,19 @@ test, and lint commands run inside the dev shell (via direnv or
 - **Never suppress lints or disable hooks without explicit user permission.**
   Fix the root cause.
 
+## Documentation Standards
+
+- **Docs read standalone.** A future reader has the doc and nothing else — no PR
+  threads, no chat, no process narration.
+- **Every mathematical symbol is defined before first use.** A math-bearing doc
+  opens with a Notation table covering every symbol its formulas use; never
+  introduce a letter mid-derivation. Formulas use GitHub-rendered LaTeX (`$...$`
+  / `$$...$$`).
+- **No code identifiers inside math mode.** GitHub's markdown layer strips `\_`
+  escapes before MathJax parses, so `\texttt{a_b}` breaks rendering — keep
+  identifiers in code spans outside the math.
+- **Cite sources as clickable links**, never as bare prose references.
+
 ## Version Control: GitButler
 
 This repo uses GitButler in **workspace mode** — HEAD sits on the
