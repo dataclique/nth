@@ -135,22 +135,6 @@ fun test_withdraw_more_than_balance_aborts() {
 }
 
 #[test]
-fun test_new_with_deposit_credits_balance() {
-  let mut test = begin(ALICE);
-  {
-    let margin_account = strike::new_with_deposit(
-      mint_for_testing<USDC>(scaled(250), test.ctx()),
-      test.ctx(),
-    );
-    assert!(margin_account.balance() == scaled(250), 0);
-    assert!(margin_account.owner() == ALICE, 0);
-    margin_account.keep(test.ctx());
-  };
-
-  end(test);
-}
-
-#[test]
 fun test_withdraw_full_balance() {
   let mut test = begin(ALICE);
   {

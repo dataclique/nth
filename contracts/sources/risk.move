@@ -9,6 +9,8 @@ use strike::constants;
 use strike::order::Side;
 use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
 
+// === Public Functions ===
+
 /// Initial margin backing an order: `price * size / leverage`. The result
 /// lands in USDC base units (see `units::UsdcAmount` on why the scaling
 /// factors cancel).
@@ -20,7 +22,7 @@ public fun margin_required(
   let value =
     (price.value() as u128) * (size.value() as u128)
       / (leverage.value() as u128);
-  units::usdc(value as u64)
+  units::usdc_from_u128(value)
 }
 
 /// Maintenance margin for a position: `size * price * rate / 100`, with
@@ -34,7 +36,7 @@ public fun maintenance_margin(
   let value =
     (size.value() as u128) * (price.value() as u128)
       * (maintenance_margin_rate as u128) / 100 / float_scaling;
-  units::usdc(value as u64)
+  units::usdc_from_u128(value)
 }
 
 /// The highest leverage whose initial margin still covers the maintenance
@@ -48,11 +50,13 @@ public fun max_leverage(maintenance_margin_rate: u64): Leverage {
 
 /// Whether a position crosses its liquidation threshold at
 /// `current_price`, using the ByBit-style liquidation price documented in
-/// docs/liquidation.md. Runs entirely in u128: a margin already at or
-/// below maintenance liquidates at any price (the naive `initial -
-/// maintenance` would underflow-abort for any leverage above
-/// `max_leverage`), and a long whose buffer exceeds its entry price can
-/// never be liquidated by a price drop.
+/// docs/liquidation.md. Runs entirely in u128: a margin strictly below
+/// maintenance liquidates at any price (the naive `initial - maintenance`
+/// would underflow-abort for any leverage above `max_leverage`), and a
+/// long whose buffer exceeds its entry price can never be liquidated by a
+/// price drop. Aborts on `size` of zero (division); callers guarantee
+/// positive size — `pool::place_leveraged_order` rejects zero-size orders
+/// at the boundary.
 public fun is_liquidated(
   side: Side,
   entry_price: Price,
@@ -98,5 +102,5 @@ public fun refund_for_unfilled(
   let value =
     (unfilled.value() as u128) * (price.value() as u128)
       / (leverage.value() as u128);
-  units::usdc(value as u64)
+  units::usdc_from_u128(value)
 }

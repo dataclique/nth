@@ -6,10 +6,13 @@ use strike::strike::MarginAccount;
 use strike::units::{Self, Price, Size, UsdcAmount};
 use sui::event;
 
-// Error codes
+// === Errors ===
+
 const EOrderNotFound: u64 = 1;
 const EInvalidAccountOwner: u64 = 2;
 const ESelfMatch: u64 = 3;
+
+// === Structs ===
 
 public struct OrderBook has key, store {
   id: UID,
@@ -17,6 +20,8 @@ public struct OrderBook has key, store {
   asks: vector<Order>, // Sell/Short orders sorted by price (lowest first)
   next_order_id: OrderId,
 }
+
+// === Events ===
 
 // Events carry primitive fields: their BCS layout is the external contract
 // consumed by indexers, so domain types are projected via
@@ -52,12 +57,17 @@ public struct OrderMatched has copy, drop {
   size: u64,
 }
 
+/// `entry_price` identifies the liquidated position; `oracle_price` is
+/// the price that triggered the liquidation.
 public struct PositionLiquidated has copy, drop {
   pool_id: ID,
   margin_account_id: ID,
-  price: u64,
+  entry_price: u64,
+  oracle_price: u64,
   is_bid: bool,
 }
+
+// === Package Functions ===
 
 public(package) fun empty(ctx: &mut TxContext): OrderBook {
   OrderBook {
@@ -246,43 +256,52 @@ fun sort_asks(asks: &mut vector<Order>) {
   asks.insertion_sort_by!(|left, right| left.price().le(right.price()));
 }
 
-public(package) fun get_best_bid(orderbook: &OrderBook): (Price, Size) {
+// === View Functions ===
+
+/// Best resting bid as (price, AVAILABLE size — the unfilled remainder,
+/// not the originally submitted size). (0, 0) sentinel on an empty side.
+public(package) fun best_bid(orderbook: &OrderBook): (Price, Size) {
   if (orderbook.bids.is_empty()) {
     (units::price(0), units::size_zero())
   } else {
-    let best_bid = orderbook.bids.borrow(0);
-    (best_bid.price(), best_bid.size())
+    let best = orderbook.bids.borrow(0);
+    (best.price(), best.unfilled_size())
   }
 }
 
-public(package) fun get_best_ask(orderbook: &OrderBook): (Price, Size) {
+/// Best resting ask as (price, available size). See `best_bid`.
+public(package) fun best_ask(orderbook: &OrderBook): (Price, Size) {
   if (orderbook.asks.is_empty()) {
     (units::price(0), units::size_zero())
   } else {
-    let best_ask = orderbook.asks.borrow(0);
-    (best_ask.price(), best_ask.size())
+    let best = orderbook.asks.borrow(0);
+    (best.price(), best.unfilled_size())
   }
 }
 
+// === Test-only accessors ===
+
 #[test_only]
-public fun get_bids_length(orderbook: &OrderBook): u64 {
+public fun bids_length(orderbook: &OrderBook): u64 {
   orderbook.bids.length()
 }
 
 #[test_only]
-public fun get_asks_length(orderbook: &OrderBook): u64 {
+public fun asks_length(orderbook: &OrderBook): u64 {
   orderbook.asks.length()
 }
 
 #[test_only]
-public fun get_bid(orderbook: &OrderBook, index: u64): &Order {
+public fun bid_at(orderbook: &OrderBook, index: u64): &Order {
   orderbook.bids.borrow(index)
 }
 
 #[test_only]
-public fun get_ask(orderbook: &OrderBook, index: u64): &Order {
+public fun ask_at(orderbook: &OrderBook, index: u64): &Order {
   orderbook.asks.borrow(index)
 }
+
+// === Package Functions ===
 
 /// Remove every liquidated bid in one pass, emitting `PositionLiquidated`
 /// per removal. `pool_id` only feeds the emitted events.
@@ -340,14 +359,15 @@ fun remove_liquidated(
 
     if (liquidated) {
       let margin_account_id = order.margin_account_id();
-      let price = order.price();
+      let entry_price = order.entry_price();
       let side = order.side();
       orders.remove(order_index);
 
       event::emit(PositionLiquidated {
         pool_id,
         margin_account_id,
-        price: price.value(),
+        entry_price: entry_price.value(),
+        oracle_price: current_price.value(),
         is_bid: side.is_bid(),
       });
     } else {

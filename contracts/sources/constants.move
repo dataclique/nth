@@ -1,5 +1,7 @@
 module strike::constants;
 
+// === Constants ===
+
 const DEFAULT_MAINTANCE_MARGIN_RATE: u64 = 25; // 25%
 
 /// Fixed-point scale for prices, sizes, and leverage (see strike::units).
@@ -9,6 +11,8 @@ const DEFAULT_MAINTANCE_MARGIN_RATE: u64 = 25; // 25%
 /// decimals (`6, // decimals` in the `create_currency` call):
 /// https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move
 const FLOAT_SCALING: u64 = 1_000_000;
+
+// === Public Functions ===
 
 public fun default_maintance_margin_rate(): u64 {
   DEFAULT_MAINTANCE_MARGIN_RATE

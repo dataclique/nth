@@ -2,6 +2,8 @@ module strike::order;
 
 use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
 
+// === Side ===
+
 /// Which side of the book an order is on. Bid = buy/long, Ask = sell/short.
 /// Replaces `is_bid: bool` at call sites: `order::bid()` reads where a bare
 /// `true` did not. Variants are module-internal (Move enums), so consumers
@@ -32,6 +34,8 @@ public fun is_bid(side: Side): bool {
   }
 }
 
+// === OrderId ===
+
 /// Identifier unique within one orderbook; assigned sequentially when an
 /// order is placed. The cancellation key: unlike (account, price), it
 /// stays unique when an account places several orders at one price level.
@@ -54,6 +58,8 @@ public fun order_id_eq(id: OrderId, other: OrderId): bool {
 }
 
 public use fun order_id_eq as OrderId.eq;
+
+// === Order ===
 
 public struct Order has drop, store {
   /// Assigned by `orderbook::place_limit_order`; zero until placed.

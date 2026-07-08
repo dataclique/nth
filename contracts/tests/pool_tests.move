@@ -4,7 +4,7 @@ module strike::pool_tests;
 use strike::constants;
 use strike::order;
 use strike::orderbook;
-use strike::pool::{Self, Pool};
+use strike::pool::{Self, Pool, PriceCap};
 use strike::strike::{Self, MarginAccount};
 use strike::units::{Self, Price, Size, Leverage};
 use sui::coin::mint_for_testing;
@@ -174,7 +174,7 @@ fun test_close_position_returns_margin_to_account_exactly() {
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     assert!(margin_account.balance() == usdc_of(1000), 1);
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == 0, 2);
 
     // 95*5/4 = 118.75 USDC margin: a non-round amount so an off-by-one
@@ -191,7 +191,7 @@ fun test_close_position_returns_margin_to_account_exactly() {
 
     let margin = usdc_of(118) + usdc_of(75)/100;
     assert!(margin_account.balance() == usdc_of(1000) - margin, 3);
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == margin, 4);
 
     pool::close_position(
@@ -205,7 +205,7 @@ fun test_close_position_returns_margin_to_account_exactly() {
     // Conservation: account and vault return to exactly the pre-place
     // values, not a scaled or truncated approximation.
     assert!(margin_account.balance() == usdc_of(1000), 5);
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == 0, 6);
 
     return_shared(pool);
@@ -249,7 +249,7 @@ fun test_vault_conserves_value_across_mixed_flow() {
     );
 
     let liquidated_margin = usdc_of(118) + usdc_of(75)/100;
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == liquidated_margin + usdc_of(90), 1);
 
     // Cancel the 90 bid: its margin leaves the vault.
@@ -265,13 +265,13 @@ fun test_vault_conserves_value_across_mixed_flow() {
     pool::set_token_price(&mut pool, px(80), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 2);
 
     // Pool-level conservation: the cancelled margin was refunded, the
     // liquidated margin was retained — the vault holds exactly the
     // liquidated order's margin.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == liquidated_margin, 3);
     assert!(
       margin_account.balance() == usdc_of(1000) - liquidated_margin,
@@ -312,12 +312,12 @@ fun test_liquidated_order_margin_stays_in_vault() {
     pool::set_token_price(&mut pool, px(80), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 2);
 
     // Liquidation forfeits the margin: the vault keeps it and the
     // account receives nothing back.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == margin, 3);
     assert!(margin_account.balance() == account_after_place, 4);
 
@@ -351,7 +351,7 @@ fun test_place_order_charges_exact_margin() {
 
     let margin_bid = 118_750_000;
     assert!(margin_account.balance() == usdc_of(1000) - margin_bid, 1);
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == margin_bid, 2);
 
     // 110*1/3 = 36.666... USDC: not exact in base units, so the u128
@@ -371,8 +371,78 @@ fun test_place_order_charges_exact_margin() {
       margin_account.balance() == usdc_of(1000) - margin_bid - margin_ask,
       3,
     );
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == margin_bid + margin_ask, 4);
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test]
+fun test_partial_fill_then_rest_conserves_margin() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    // Resting bid: 100 x 10 at 2x, margin 500.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(10),
+      lev(2),
+      test.ctx(),
+    );
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Ask at 95 x 15 at 3x (margin 95*15/3 = 475): 10 fill against
+    // Alice's bid at 100 and the remaining 5 rest at 95. The FULL
+    // margin is charged up front and retained across the partial fill.
+    let ask_id = pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(95),
+      sz(15),
+      lev(3),
+      test.ctx(),
+    );
+
+    let vault = pool::borrow_vault(&pool);
+    assert!(vault.balance() == usdc_of(500 + 475), 1);
+    assert!(margin_account.balance() == usdc_of(1000 - 475), 2);
+
+    // Closing the resting remainder refunds only the unfilled part:
+    // 5*95/3 = 158.333... USDC, truncated to 158_333_333 base units.
+    // The filled 10's margin stays locked — conservation across
+    // partial-fill, rest, then cancel.
+    pool::close_position(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      ask_id,
+      test.ctx(),
+    );
+
+    let refund = 158_333_333;
+    assert!(margin_account.balance() == usdc_of(525) + refund, 3);
+    let vault = pool::borrow_vault(&pool);
+    assert!(vault.balance() == usdc_of(975) - refund, 4);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -395,9 +465,9 @@ fun test_check_liquidations_on_empty_book_is_noop() {
     // aborting and leave both sides empty.
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 0, 2);
 
     return_shared(pool);
   };
@@ -455,20 +525,20 @@ fun test_check_liquidations_removes_multiple_bids_and_asks_in_one_sweep() {
     pool::set_token_price(&mut pool, px(50), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
 
     // Round 2 — spike to 120: the short at 110 liquidates.
     pool::set_token_price(&mut pool, px(120), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 3);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 4);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 3);
+    assert!(orderbook::asks_length(orderbook) == 0, 4);
 
     // All three margins (25 + 47.5 + 27.5 = 100) stay in the vault.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(100), 5);
 
     return_shared(pool);
@@ -507,9 +577,9 @@ fun test_pool_new_seeds_oracle_with_initial_price() {
     // actually reached the oracle (100 - 0 >= 100).
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    let vault = pool::get_vault(&pool);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(25), 2);
 
     return_shared(pool);
@@ -555,6 +625,27 @@ fun test_zero_price_pool_aborts() {
     // A zero initial price would make every liquidation check
     // meaningless before the first oracle update.
     let cap = pool::new(25, units::price(0), test.ctx());
+    transfer::public_transfer(cap, ALICE);
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EInvalidPrice)]
+fun test_update_price_to_zero_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let cap = take_from_address<PriceCap>(&test, ALICE);
+
+    // Even the PriceCap holder cannot zero the oracle: a zero price
+    // would make every liquidation check meaningless.
+    pool::update_price(&mut pool, &cap, units::price(0), test.ctx());
+
+    // Unreachable, but the objects must be consumed syntactically.
+    return_shared(pool);
     transfer::public_transfer(cap, ALICE);
   };
   end(test);
@@ -639,12 +730,12 @@ fun test_fully_filled_taker_margin_stays_in_vault() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 0, 2);
 
     // BOTH margins are retained by the vault — no settlement yet.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(200 + 190), 3);
     assert!(margin_account.balance() == usdc_of(1000 - 190), 4);
 

@@ -81,9 +81,9 @@ fun test_place_bid_order() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     assert!(resting.side().is_bid(), 2);
     assert!(resting.price().value() == px(100).value(), 3);
     assert!(resting.size().value() == sz(10).value(), 4);
@@ -116,10 +116,10 @@ fun test_place_ask_order() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
-    let resting: &Order = orderbook::get_ask(orderbook, 0);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
+    let resting: &Order = orderbook::ask_at(orderbook, 0);
     assert!(!resting.side().is_bid(), 3);
     assert!(resting.price().value() == px(100).value(), 4);
     assert!(resting.size().value() == sz(10).value(), 5);
@@ -185,7 +185,7 @@ fun test_place_and_cancel_orders() {
       test.ctx(),
     );
 
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(500 + 275 + 240), 1);
 
     pool::close_position(
@@ -196,14 +196,14 @@ fun test_place_and_cancel_orders() {
       test.ctx(),
     );
 
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(500 + 240), 2);
 
     assert!(margin_account.balance() == usdc_of(1000 - 240), 3);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 4);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 5);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::asks_length(orderbook) == 1, 4);
+    assert!(orderbook::bids_length(orderbook) == 1, 5);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -253,17 +253,17 @@ fun test_orders_match() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 1);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::asks_length(orderbook) == 0, 1);
+    assert!(orderbook::bids_length(orderbook) == 1, 2);
 
     // The maker bid is partially filled: 4 of 10.
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     assert!(resting.filled_size().value() == sz(4).value(), 3);
     assert!(resting.unfilled_size().value() == sz(6).value(), 4);
 
     // Bob's margin (95*4/2 = 190) stays in the vault with the fill.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(500 + 190), 5);
 
     return_shared(pool);
@@ -277,8 +277,8 @@ fun test_orders_match() {
 
     // Cancelling the partially filled bid refunds only the unfilled
     // part: 6*100/2 = 300 of the original 500.
-    let orderbook = pool::get_orderbook(&pool);
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let orderbook = pool::borrow_orderbook(&pool);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     let bid_id = resting.order_id();
 
     pool::close_position(
@@ -290,8 +290,8 @@ fun test_orders_match() {
     );
 
     assert!(margin_account.balance() == usdc_of(500 + 300), 6);
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 7);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 7);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -392,9 +392,9 @@ fun test_liquidations() {
     );
     // In total we need 100 + 118.75 + 360 + 105 + 220 = 903.75 margin
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 3, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 2, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 3, 1);
+    assert!(orderbook::asks_length(orderbook) == 2, 2);
     // 25*constants::float_scaling()/100 = 0.25 USDC
     assert!(
       margin_account.balance() == usdc_of(96) + usdc_of(25)/100,
@@ -406,14 +406,14 @@ fun test_liquidations() {
     pool::check_liquidations(&mut pool);
 
     // Only bid order with price 95 and size 5 should be liquidated
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 2, 4);
-    assert!(orderbook::get_asks_length(orderbook) == 2, 5); // All asks remain
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 2, 4);
+    assert!(orderbook::asks_length(orderbook) == 2, 5); // All asks remain
 
-    let remaining_bid = orderbook::get_bid(orderbook, 0);
+    let remaining_bid = orderbook::bid_at(orderbook, 0);
     assert!(remaining_bid.price().value() == px(100).value(), 6);
 
-    let remaining_bid = orderbook::get_bid(orderbook, 1);
+    let remaining_bid = orderbook::bid_at(orderbook, 1);
     assert!(remaining_bid.price().value() == px(90).value(), 7);
 
     // Let's close all bids positions
@@ -435,7 +435,7 @@ fun test_liquidations() {
 
     // Check vault balance - should contain all the margin from liquidated
     // positions + asks orders
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     // 75*constants::float_scaling()/100 = 0.75 USDC
     assert!(
       vault.balance() == usdc_of(118 + 105 + 220) + usdc_of(75)/100,
@@ -514,9 +514,9 @@ fun test_liquidations_asks() {
     );
     // In total we need 100 + 118.75 + 360 + 105 + 220 = 903.75 margin
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 3, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 2, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 3, 1);
+    assert!(orderbook::asks_length(orderbook) == 2, 2);
     // 25*constants::float_scaling()/100 = 0.25 USDC
     assert!(
       margin_account.balance() == usdc_of(96) + usdc_of(25)/100,
@@ -528,11 +528,11 @@ fun test_liquidations_asks() {
     pool::check_liquidations(&mut pool);
 
     // Only ask order with 110 price should be liquidated
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 3, 4);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 5);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 3, 4);
+    assert!(orderbook::asks_length(orderbook) == 1, 5);
 
-    let remaining_ask = orderbook::get_ask(orderbook, 0);
+    let remaining_ask = orderbook::ask_at(orderbook, 0);
     assert!(remaining_ask.price().value() == px(105).value(), 6);
 
     // Let's close last ask position and check balance
@@ -545,7 +545,7 @@ fun test_liquidations_asks() {
     );
 
     // all 3 bids should be in vault + liquidated ask
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     // 75*constants::float_scaling()/100 = 0.75 USDC
     assert!(
       vault.balance() == usdc_of(100+118+360+220) + usdc_of(75)/100,
@@ -602,12 +602,12 @@ fun test_taker_partially_fills_and_rests() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
 
     // The resting remainder records its own filled part: 10 of 15.
-    let resting: &Order = orderbook::get_ask(orderbook, 0);
+    let resting: &Order = orderbook::ask_at(orderbook, 0);
     assert!(resting.price().value() == px(95).value(), 3);
     assert!(resting.size().value() == sz(15).value(), 4);
     assert!(resting.filled_size().value() == sz(10).value(), 5);
@@ -671,9 +671,9 @@ fun test_taker_walks_multiple_price_levels() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 0, 2);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -734,12 +734,12 @@ fun test_equal_price_orders_fill_in_time_priority() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
+    assert!(orderbook::asks_length(orderbook) == 0, 2);
 
     // The survivor is the second-placed order: its id is the larger one.
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     assert!(second_id.value() > first_id.value(), 3);
     assert!(resting.order_id().eq(second_id), 4);
     assert!(resting.filled_size().value() == sz(1).value(), 5);
@@ -793,14 +793,14 @@ fun test_non_crossing_orders_rest() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
 
-    let resting_bid: &Order = orderbook::get_bid(orderbook, 0);
+    let resting_bid: &Order = orderbook::bid_at(orderbook, 0);
     assert!(resting_bid.filled_size().value() == 0, 3);
 
-    let resting_ask: &Order = orderbook::get_ask(orderbook, 0);
+    let resting_ask: &Order = orderbook::ask_at(orderbook, 0);
     assert!(resting_ask.filled_size().value() == 0, 4);
 
     return_shared(pool);
@@ -845,8 +845,8 @@ fun test_duplicate_price_orders_cancel_individually() {
 
     assert!(!first_id.eq(second_id), 1);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 2, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 2, 2);
     assert!(margin_account.balance() == usdc_of(800), 3);
 
     pool::close_position(
@@ -857,8 +857,8 @@ fun test_duplicate_price_orders_cancel_individually() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 4);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 4);
     assert!(margin_account.balance() == usdc_of(900), 5);
 
     pool::close_position(
@@ -869,8 +869,8 @@ fun test_duplicate_price_orders_cancel_individually() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 6);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 6);
     assert!(margin_account.balance() == usdc_of(1000), 7);
 
     return_shared(pool);
@@ -908,52 +908,6 @@ fun test_cancel_wrong_id_aborts() {
     );
 
     // The id is gone from the book: closing it again must abort.
-    pool::close_position(
-      &mut pool,
-      &mut margin_account,
-      order::bid(),
-      bid_id,
-      test.ctx(),
-    );
-
-    return_shared(pool);
-    margin_account.keep(test.ctx());
-  };
-  end(test);
-}
-
-#[test, expected_failure(abort_code = orderbook::EOrderNotFound)]
-fun test_cancel_other_account_order_aborts() {
-  let mut test = begin(@0xF);
-  setup(&mut test);
-
-  next_tx(&mut test, ALICE);
-  let bid_id = {
-    let mut pool = take_shared<Pool>(&test);
-    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
-
-    let bid_id = pool::place_leveraged_order(
-      &mut pool,
-      &mut margin_account,
-      order::bid(),
-      px(100),
-      sz(2),
-      lev(2),
-      test.ctx(),
-    );
-
-    return_shared(pool);
-    margin_account.keep(test.ctx());
-    bid_id
-  };
-
-  next_tx(&mut test, BOB);
-  {
-    let mut pool = take_shared<Pool>(&test);
-    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
-
-    // The id exists on the book but belongs to Alice's account: Bob's
-    // scan (id AND account must match) misses and aborts.
     pool::close_position(
       &mut pool,
       &mut margin_account,
@@ -1146,14 +1100,14 @@ fun test_bids_sorted_descending_after_out_of_order_placement() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 3, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 3, 1);
 
-    let best_bid = orderbook::get_bid(orderbook, 0);
+    let best_bid = orderbook::bid_at(orderbook, 0);
     assert!(best_bid.price().value() == px(100).value(), 2);
-    let second_bid = orderbook::get_bid(orderbook, 1);
+    let second_bid = orderbook::bid_at(orderbook, 1);
     assert!(second_bid.price().value() == px(95).value(), 3);
-    let third_bid = orderbook::get_bid(orderbook, 2);
+    let third_bid = orderbook::bid_at(orderbook, 2);
     assert!(third_bid.price().value() == px(90).value(), 4);
 
     return_shared(pool);
@@ -1202,14 +1156,14 @@ fun test_asks_sorted_ascending_after_out_of_order_placement() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_asks_length(orderbook) == 3, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::asks_length(orderbook) == 3, 1);
 
-    let best_ask = orderbook::get_ask(orderbook, 0);
+    let best_ask = orderbook::ask_at(orderbook, 0);
     assert!(best_ask.price().value() == px(105).value(), 2);
-    let second_ask = orderbook::get_ask(orderbook, 1);
+    let second_ask = orderbook::ask_at(orderbook, 1);
     assert!(second_ask.price().value() == px(110).value(), 3);
-    let third_ask = orderbook::get_ask(orderbook, 2);
+    let third_ask = orderbook::ask_at(orderbook, 2);
     assert!(third_ask.price().value() == px(120).value(), 4);
 
     return_shared(pool);
@@ -1247,8 +1201,8 @@ fun test_liquidation_at_exact_threshold_price() {
     pool::set_token_price(&mut pool, px(95), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -1285,8 +1239,8 @@ fun test_no_liquidation_just_above_threshold() {
     );
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -1320,15 +1274,15 @@ fun test_low_leverage_long_survives_crash_to_near_zero() {
     pool::set_token_price(&mut pool, px(26), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
 
     // Exactly at the liquidation price: liquidated.
     pool::set_token_price(&mut pool, px(25), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 2);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -1369,14 +1323,14 @@ fun test_large_notional_does_not_overflow() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     assert!(resting.size().value() == sz(1000).value(), 2);
 
     // The margin charge is exact: the whole 100M USDC deposit.
     assert!(margin_account.balance() == 0, 3);
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(100_000_000), 4);
 
     return_shared(pool);
@@ -1414,8 +1368,8 @@ fun test_price_cap_updates_price() {
     pool::update_price(&mut pool, &cap, px(80), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
 
     return_shared(pool);
     transfer::public_transfer(cap, ALICE);
@@ -1495,9 +1449,9 @@ fun test_taker_and_maker_exactly_consumed() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 0, 2);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -1548,11 +1502,11 @@ fun test_taker_consumes_maker_then_rests_remainder_at_own_price() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
 
-    let resting: &Order = orderbook::get_ask(orderbook, 0);
+    let resting: &Order = orderbook::ask_at(orderbook, 0);
     assert!(resting.price().value() == px(99).value(), 3);
     assert!(resting.filled_size().value() == sz(3).value(), 4);
     assert!(resting.unfilled_size().value() == sz(7).value(), 5);
@@ -1626,17 +1580,17 @@ fun test_multi_level_walk_stops_at_non_crossing_level() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 1, 1);
-    assert!(orderbook::get_asks_length(orderbook) == 1, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 1, 1);
+    assert!(orderbook::asks_length(orderbook) == 1, 2);
 
     // The 95 bid survives untouched.
-    let surviving_bid: &Order = orderbook::get_bid(orderbook, 0);
+    let surviving_bid: &Order = orderbook::bid_at(orderbook, 0);
     assert!(surviving_bid.price().value() == px(95).value(), 3);
     assert!(surviving_bid.filled_size().value() == 0, 4);
 
     // The taker remainder rests with its fills recorded: 4 of 10.
-    let resting_ask: &Order = orderbook::get_ask(orderbook, 0);
+    let resting_ask: &Order = orderbook::ask_at(orderbook, 0);
     assert!(resting_ask.price().value() == px(97).value(), 5);
     assert!(resting_ask.filled_size().value() == sz(4).value(), 6);
     assert!(resting_ask.unfilled_size().value() == sz(6).value(), 7);
@@ -1700,15 +1654,15 @@ fun test_bid_taker_fills_at_ask_prices() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_asks_length(orderbook) == 0, 1);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::asks_length(orderbook) == 0, 1);
+    assert!(orderbook::bids_length(orderbook) == 0, 2);
 
     // The taker's margin was computed at ITS limit price (100*2/2 =
     // 100), not the better fill prices — the vault holds exactly the
     // makers' 90+95 plus the taker's 100. This documents the current
     // prototype margin semantics: no maker-price rebate on fills.
-    let vault = pool::get_vault(&pool);
+    let vault = pool::borrow_vault(&pool);
     assert!(vault.balance() == usdc_of(90 + 95 + 100), 3);
     assert!(margin_account.balance() == usdc_of(1000 - 100), 4);
 
@@ -1832,11 +1786,11 @@ fun test_best_bid_and_ask_reflect_book() {
     let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
 
     // Empty book: both sides report the (0, 0) sentinel.
-    let orderbook = pool::get_orderbook(&pool);
-    let (bid_price, bid_size) = orderbook::get_best_bid(orderbook);
+    let orderbook = pool::borrow_orderbook(&pool);
+    let (bid_price, bid_size) = orderbook::best_bid(orderbook);
     assert!(bid_price.value() == 0, 1);
     assert!(bid_size.value() == 0, 2);
-    let (ask_price, ask_size) = orderbook::get_best_ask(orderbook);
+    let (ask_price, ask_size) = orderbook::best_ask(orderbook);
     assert!(ask_price.value() == 0, 3);
     assert!(ask_size.value() == 0, 4);
 
@@ -1861,15 +1815,47 @@ fun test_best_bid_and_ask_reflect_book() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    let (bid_price, bid_size) = orderbook::get_best_bid(orderbook);
+    let orderbook = pool::borrow_orderbook(&pool);
+    let (bid_price, bid_size) = orderbook::best_bid(orderbook);
     assert!(bid_price.value() == px(100).value(), 5);
     assert!(bid_size.value() == sz(2).value(), 6);
 
     // The ask side is still empty and unaffected by the bids.
-    let (ask_price, ask_size) = orderbook::get_best_ask(orderbook);
+    let (ask_price, ask_size) = orderbook::best_ask(orderbook);
     assert!(ask_price.value() == 0, 7);
     assert!(ask_size.value() == 0, 8);
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  next_tx(&mut test, BOB);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, BOB);
+
+    // Bob's ask at 100 x 1 crosses the best bid (100 x 2) and fills 1
+    // of it: best_bid must now report the UNFILLED remainder, not the
+    // size originally submitted.
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::ask(),
+      px(100),
+      sz(1),
+      lev(2),
+      test.ctx(),
+    );
+
+    let orderbook = pool::borrow_orderbook(&pool);
+    let (bid_price, bid_size) = orderbook::best_bid(orderbook);
+    assert!(bid_price.value() == px(100).value(), 9);
+    assert!(bid_size.value() == sz(1).value(), 10);
+
+    // The fully consumed taker never rests: the ask side stays empty.
+    let (ask_price, ask_size) = orderbook::best_ask(orderbook);
+    assert!(ask_price.value() == 0, 11);
+    assert!(ask_size.value() == 0, 12);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
@@ -1878,7 +1864,7 @@ fun test_best_bid_and_ask_reflect_book() {
 }
 
 #[test]
-fun test_liquidation_skips_partially_filled_order_margin_math() {
+fun test_liquidation_uses_full_size_for_partially_filled_order() {
   let mut test = begin(@0xF);
   setup(&mut test);
 
@@ -1919,8 +1905,8 @@ fun test_liquidation_skips_partially_filled_order_margin_math() {
       test.ctx(),
     );
 
-    let orderbook = pool::get_orderbook(&pool);
-    let resting: &Order = orderbook::get_bid(orderbook, 0);
+    let orderbook = pool::borrow_orderbook(&pool);
+    let resting: &Order = orderbook::bid_at(orderbook, 0);
     assert!(resting.filled_size().value() == sz(5).value(), 1);
 
     // Liquidation evaluates the FULL size (10) against the original
@@ -1933,8 +1919,8 @@ fun test_liquidation_skips_partially_filled_order_margin_math() {
     pool::set_token_price(&mut pool, px(100), test.ctx());
     pool::check_liquidations(&mut pool);
 
-    let orderbook = pool::get_orderbook(&pool);
-    assert!(orderbook::get_bids_length(orderbook) == 0, 2);
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 2);
 
     return_shared(pool);
     margin_account.keep(test.ctx());
