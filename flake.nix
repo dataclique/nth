@@ -78,7 +78,12 @@
             nil.enable = true;
             nixfmt.enable = true;
             eslint.enable = true;
+            # deno fmt owns markdown; keep prettier off .md so the two
+            # formatters don't fight over the same files.
             prettier.enable = true;
+            prettier.excludes = [ "\\.md$" ];
+            denofmt.enable = true;
+            denofmt.files = "\\.md$";
             taplo.enable = true;
           };
 
