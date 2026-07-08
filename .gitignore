@@ -9,4 +9,5 @@
 .cursor/cli.json
 
 backend/testcandledata/target/
+fuzz/target/
 /node_modules
