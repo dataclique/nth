@@ -13,7 +13,8 @@ decimals (see
 where `create_currency` is called with `decimals = 6`), so one factor of
 `FLOAT_SCALING` cancels exactly against USDC's base-unit denominator. This is
 what lets `risk::margin_required` divide a double-scaled `price * size` product
-by scaled leverage and land directly in `Balance<USDC>` base units.
+by scaled leverage and land directly in USDC base units as a `UsdcAmount` (which
+the caller deposits into a `Balance<USDC>` without rescaling).
 
 ## Why Float Scaling?
 
