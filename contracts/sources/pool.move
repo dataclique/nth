@@ -9,11 +9,14 @@ use strike::units::{Price, Size, Leverage};
 use strike::vault::{Self, Vault};
 use sui::event;
 
+// === Constants ===
+
 /// Mutators assert this against `Pool.version` so a future package upgrade
 /// can migrate shared pools explicitly instead of operating on stale state.
 const POOL_VERSION: u64 = 1;
 
-// Error constants
+// === Errors ===
+
 const EInsufficientBalance: u64 = 1;
 const EInvalidPrice: u64 = 2;
 const EInvalidQuantity: u64 = 3;
@@ -23,6 +26,8 @@ const EWrongPool: u64 = 6;
 const EInvalidMaintenanceMarginRate: u64 = 7;
 const EZeroMargin: u64 = 8;
 const EWrongVersion: u64 = 9;
+
+// === Structs ===
 
 /// Shared market object holding the vault, orderbook, and oracle for one
 /// trading pair. Shared (not owned) so any trader can submit orders
@@ -47,6 +52,8 @@ public struct PriceCap has key, store {
   id: UID,
   pool_id: ID,
 }
+
+// === Events ===
 
 // Events carry primitive fields: their BCS layout is the external
 // contract consumed by indexers.
@@ -73,6 +80,8 @@ public struct PositionClosed has copy, drop {
   price: u64,
   is_bid: bool,
 }
+
+// === Public Functions ===
 
 /// Create and share a pool for one trading pair, returning its `PriceCap`
 /// for the caller to keep or delegate. The oracle starts at
@@ -131,12 +140,12 @@ public fun update_price(
 }
 
 #[test_only]
-public fun get_orderbook(pool: &Pool): &OrderBook {
+public fun borrow_orderbook(pool: &Pool): &OrderBook {
   &pool.orderbook
 }
 
 #[test_only]
-public fun get_vault(pool: &Pool): &Vault {
+public fun borrow_vault(pool: &Pool): &Vault {
   &pool.vault
 }
 
@@ -266,7 +275,7 @@ public fun close_position(
 /// this; each removal emits `PositionLiquidated`.
 public fun check_liquidations(pool: &mut Pool) {
   assert_version(pool);
-  let current_price = oracle::get_price(&pool.oracle);
+  let current_price = oracle::price(&pool.oracle);
   let pool_id = object::id(pool);
 
   orderbook::remove_liquidated_bids(
@@ -283,9 +292,13 @@ public fun check_liquidations(pool: &mut Pool) {
   );
 }
 
+// === Private Functions ===
+
 fun assert_version(pool: &Pool) {
   assert!(pool.version == POOL_VERSION, EWrongVersion);
 }
+
+// === Test-Only Functions ===
 
 #[test_only]
 /// Imitate an oracle update without threading the PriceCap through tests.

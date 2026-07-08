@@ -60,6 +60,19 @@ fun margin_required_survives_u64_overflowing_notional() {
   assert!(margin.value() == us(100_000_000).value(), 0);
 }
 
+/// Move's `as u64` truncates silently; the checked narrowing in
+/// `units::usdc_from_u128` turns a wrap-around margin into an abort.
+/// Price 10^13 * size 2*10^12 at 1x leverage puts the u128 result at
+/// 2*10^19 base units, past u64::MAX.
+#[test, expected_failure(abort_code = units::EOverflow)]
+fun margin_overflowing_u64_aborts() {
+  let _ = risk::margin_required(
+    units::price(10_000_000_000_000),
+    units::size(2_000_000_000_000),
+    units::leverage(1_000_000),
+  );
+}
+
 // === maintenance_margin ===
 
 #[test]

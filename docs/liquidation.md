@@ -107,11 +107,12 @@ product runs in `u128`: double-scaled values like $Price \times Size$ overflow
    - **Short**: liquidated when $CurrentPrice \ge EntryPrice + Buffer$.
 
 `pool::check_liquidations` drives the sweep: it reads the current price from the
-pool's oracle and repeatedly calls `orderbook::check_and_remove_liquidated_bid`
-/ `check_and_remove_liquidated_ask` until no liquidated position remains. Each
-removal emits a `PositionLiquidated` event. The oracle price itself only moves
-through `pool::update_price`, which is gated by the pool's `PriceCap`
-capability.
+pool's oracle and calls `orderbook::remove_liquidated_bids` /
+`remove_liquidated_asks`, each a single O(n) pass that removes every position
+past its threshold. Each removal emits a `PositionLiquidated` event carrying
+both the position's entry price and the oracle price that triggered it. The
+oracle price itself only moves through `pool::update_price`, which is gated by
+the pool's `PriceCap` capability.
 
 The maintenance margin rate is a per-pool parameter that can be adjusted based
 on market conditions and risk management requirements.

@@ -19,7 +19,7 @@ fun test_update_price_overwrites() {
   oracle.update_price(px(100), &ctx);
   oracle.update_price(px(80), &ctx);
 
-  assert!(oracle.get_price().value() == px(80).value(), 0);
+  assert!(oracle.price().value() == px(80).value(), 0);
   destroy(oracle);
 }
 
@@ -30,8 +30,8 @@ fun test_new_oracle_price_is_zero_until_first_update() {
   let mut ctx = tx_context::dummy();
   let oracle = oracle::new(&mut ctx);
 
-  assert!(oracle.get_price().value() == 0, 0);
-  assert!(oracle.get_last_update_time() == 0, 1);
+  assert!(oracle.price().value() == 0, 0);
+  assert!(oracle.last_update_time() == 0, 1);
   destroy(oracle);
 }
 
@@ -41,12 +41,12 @@ fun test_update_price_stamps_time() {
   let mut oracle = oracle::new(test.ctx());
 
   oracle.update_price(px(100), test.ctx());
-  let first = oracle.get_last_update_time();
+  let first = oracle.last_update_time();
   assert!(first == test.ctx().epoch_timestamp_ms(), 0);
 
   test.later_epoch(1000, ALICE);
   oracle.update_price(px(120), test.ctx());
-  let second = oracle.get_last_update_time();
+  let second = oracle.last_update_time();
   assert!(second == test.ctx().epoch_timestamp_ms(), 1);
   assert!(second > first, 2);
 

@@ -122,7 +122,22 @@ public use fun leverage_le as Leverage.le;
 /// `constants` documents the coupling.
 public struct UsdcAmount has copy, drop, store { value: u64 }
 
+/// A u128 amount does not fit u64 base units. Move's `as u64` silently
+/// truncates, so wide arithmetic must narrow through `usdc_from_u128`.
+const EOverflow: u64 = 1;
+
+const MAX_U64: u128 = 18_446_744_073_709_551_615;
+
 public fun usdc(value: u64): UsdcAmount { UsdcAmount { value } }
+
+/// Checked narrowing for amounts computed in u128 (see `strike::risk`).
+/// Aborts with `EOverflow` instead of silently truncating — a truncated
+/// margin would pass the zero/balance checks with a sliver of the real
+/// collateral requirement.
+public fun usdc_from_u128(value: u128): UsdcAmount {
+  assert!(value <= MAX_U64, EOverflow);
+  UsdcAmount { value: value as u64 }
+}
 
 public fun usdc_value(amount: UsdcAmount): u64 { amount.value }
 
