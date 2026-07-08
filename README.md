@@ -57,7 +57,8 @@ sui move test
 
 ## Backlog
 
-- [ ] Come up with a different name (there's already a "Stryke" options platform)
+- [ ] Come up with a different name (there's already a "Stryke" options
+      platform)
 - [ ] Connect Pyth price feeds to the UI
 - [ ] Display the price of an underlying asset (e.g. SOL/USDC)
 - [ ] Connect SUI wallet to the UI
@@ -75,7 +76,8 @@ sui move test
 - [Hegic](https://www.hegic.co/app#/arbitrum/trade/new)
   - Has some nice UI elements, I gotta take note of that
 - Cega (deprecated)
-  - Had exotic options, which is interesting, but i only see vault stuff in the app. i guess i gotta look into that more
+  - Had exotic options, which is interesting, but i only see vault stuff in the
+    app. i guess i gotta look into that more
 
 ### Existing Centralized Crypto Options Platforms
 
