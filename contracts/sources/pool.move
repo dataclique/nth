@@ -5,7 +5,7 @@ use strike::order::{Self, Side, OrderId};
 use strike::orderbook::{Self, OrderBook};
 use strike::risk;
 use strike::strike::{Self, MarginAccount};
-use strike::units::{Price, Size, Leverage};
+use strike::units::{Self, Price, Size, Leverage};
 use strike::vault::{Self, Vault};
 use sui::clock::Clock;
 use sui::event;
@@ -23,6 +23,23 @@ public fun max_oracle_staleness_ms(): u64 {
   MAX_ORACLE_STALENESS_MS
 }
 
+/// Default maintenance margin rate for new pools, in percent of position
+/// notional. The rate's semantics live in `strike::risk`; this is only
+/// the suggested construction parameter.
+const DEFAULT_MAINTENANCE_MARGIN_RATE: u64 = 25;
+
+/// Minimum time between funding rounds, in epoch milliseconds (1 hour).
+/// Enforced by `update_funding`.
+const FUNDING_INTERVAL_MS: u64 = 3_600_000;
+
+public fun default_maintenance_margin_rate(): u64 {
+  DEFAULT_MAINTENANCE_MARGIN_RATE
+}
+
+public fun funding_interval_ms(): u64 {
+  FUNDING_INTERVAL_MS
+}
+
 // === Errors ===
 
 const EInsufficientBalance: u64 = 1;
@@ -35,6 +52,7 @@ const EInvalidMaintenanceMarginRate: u64 = 7;
 const EZeroMargin: u64 = 8;
 const EWrongVersion: u64 = 9;
 const EStaleOracle: u64 = 10;
+const EFundingTooSoon: u64 = 11;
 
 // === Structs ===
 
@@ -50,7 +68,10 @@ public struct Pool has key {
   /// Percentage (0..=100] of position notional required as maintenance
   /// margin. Also bounds leverage: max leverage = 100 / rate.
   maintenance_margin_rate: u64,
-  funding_rate: u64,
+  /// Rate applied by the most recent funding round, in basis points.
+  last_funding_rate_bps: u64,
+  /// Epoch-milliseconds timestamp of the most recent funding round; zero
+  /// until the first round.
   last_funding_time: u64,
 }
 
@@ -91,6 +112,19 @@ public struct PositionClosed has copy, drop {
   margin: u64,
 }
 
+/// One funding round. `collected` is the margin taken from the paying
+/// side; `distributed` is what reached the other side (the difference is
+/// integer-truncation dust that stays in the vault untracked). A zero
+/// `rate_bps` round moved nothing and only stamped the clock.
+public struct FundingApplied has copy, drop {
+  pool_id: ID,
+  rate_bps: u64,
+  longs_pay: bool,
+  collected: u64,
+  distributed: u64,
+  timestamp: u64,
+}
+
 // === Public Functions ===
 
 /// Create and share a pool for one trading pair, returning its `PriceCap`
@@ -128,7 +162,7 @@ public fun new(
     orderbook,
     oracle,
     maintenance_margin_rate,
-    funding_rate: 0,
+    last_funding_rate_bps: 0,
     last_funding_time: 0,
   });
 
@@ -237,8 +271,53 @@ public fun place_leveraged_order(
   order_id
 }
 
-// TODO: funding-rate payouts (update_funding_rates) — see git history for
-// the prototype sketch.
+/// Run one funding round: derive the rate from the divergence between the
+/// book mid and the oracle price (`risk::funding_rate_bps`, capped at
+/// `risk::max_funding_rate_bps()`), then move margin from the paying
+/// side to the other side pro-rata by notional
+/// (`orderbook::apply_funding`). Permissionless — anyone may call it once
+/// per `funding_interval_ms()`; calling earlier aborts with
+/// `EFundingTooSoon`. Rounds with an empty book side or a zero rate stamp
+/// the clock and emit a zero-flow `FundingApplied` event without moving
+/// margin. Formulas: docs/funding.md.
+public fun update_funding(pool: &mut Pool, ctx: &TxContext) {
+  assert_version(pool);
+  let now = tx_context::epoch_timestamp_ms(ctx);
+  assert!(
+    now - pool.last_funding_time >= FUNDING_INTERVAL_MS,
+    EFundingTooSoon,
+  );
+
+  let (bid_price, _) = orderbook::best_bid(&pool.orderbook);
+  let (ask_price, _) = orderbook::best_ask(&pool.orderbook);
+  let oracle_price = oracle::price(&pool.oracle);
+
+  // An empty side leaves no mid to measure and nobody to pay.
+  let (rate_bps, paying_side) =
+    if (bid_price.is_zero() || ask_price.is_zero()) {
+      (0, order::bid())
+    } else {
+      risk::funding_rate_bps(bid_price, ask_price, oracle_price)
+    };
+
+  let (collected, distributed) = if (rate_bps == 0) {
+    (units::usdc(0), units::usdc(0))
+  } else {
+    orderbook::apply_funding(&mut pool.orderbook, paying_side, rate_bps)
+  };
+
+  pool.last_funding_rate_bps = rate_bps;
+  pool.last_funding_time = now;
+
+  event::emit(FundingApplied {
+    pool_id: object::id(pool),
+    rate_bps,
+    longs_pay: paying_side.is_bid(),
+    collected: collected.value(),
+    distributed: distributed.value(),
+    timestamp: now,
+  });
+}
 
 /// Cancel the sender's resting order by id and refund the margin backing
 /// its unfilled size from the vault to the margin account. Aborts with

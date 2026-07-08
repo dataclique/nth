@@ -11,17 +11,17 @@ cap are in [margin.md](margin.md).
 
 ## Notation
 
-| Symbol               | Meaning                           |
-| -------------------- | --------------------------------- |
-| $P_e$                | Entry price                       |
-| $P$                  | Current (oracle) price            |
-| $S$                  | Position size                     |
-| $L$                  | Leverage                          |
-| $r_m$                | Maintenance margin rate (percent) |
-| $M$                  | Locked margin (USDC)              |
-| $M_i$                | Initial margin at entry           |
-| $M_{\mathrm{maint}}$ | Maintenance margin                |
-| $\Delta P$           | Price buffer above maintenance (defined below) |
+| Symbol               | Meaning                                                               |
+| -------------------- | --------------------------------------------------------------------- |
+| $P_e$                | Entry price                                                           |
+| $P$                  | Current (oracle) price                                                |
+| $S$                  | Position size                                                         |
+| $L$                  | Leverage                                                              |
+| $r_m$                | Maintenance margin rate (percent)                                     |
+| $M$                  | Locked margin (USDC)                                                  |
+| $M_i$                | Initial margin at entry                                               |
+| $M_{\mathrm{maint}}$ | Maintenance margin                                                    |
+| $\Delta P$           | Price buffer above maintenance (defined below)                        |
 | $L_{\max}$           | Highest leverage whose $M_i$ covers $M_{\mathrm{maint}}$, $100 / r_m$ |
 
 $$

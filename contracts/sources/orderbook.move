@@ -226,9 +226,9 @@ public(package) fun cancel_order(
   assert!(order_index < orders.length(), EOrderNotFound);
   let order = orders.borrow(order_index);
   let amount_to_withdraw = risk::refund_for_unfilled(
+    order.margin(),
     order.unfilled_size(),
-    order.price(),
-    order.leverage(),
+    order.size(),
   );
   let price = order.price();
   orders.remove(order_index);
@@ -303,6 +303,77 @@ public fun ask_at(orderbook: &OrderBook, index: u64): &Order {
 }
 
 // === Package Functions ===
+
+/// Apply one funding round: collect `risk::funding_payment` from every
+/// order on `paying_side` (capped at the order's remaining margin — a
+/// margin at zero falls to the next liquidation sweep) and distribute the
+/// collected total to the opposite side pro-rata by notional. Margins are
+/// vault-backed bookkeeping, so this moves no coins — the vault total is
+/// untouched; integer truncation leaves distribution dust (strictly less
+/// than the receiver count in base units) unassigned in the vault.
+/// Returns (collected, distributed). Skips entirely — returning zeros —
+/// when either side is empty: with no counterparty there is nobody to pay.
+public(package) fun apply_funding(
+  orderbook: &mut OrderBook,
+  paying_side: Side,
+  rate_bps: u64,
+): (UsdcAmount, UsdcAmount) {
+  if (orderbook.bids.is_empty() || orderbook.asks.is_empty()) {
+    return (units::usdc(0), units::usdc(0))
+  };
+
+  let (payers, receivers) = paying_side.match_side!(
+    || (&mut orderbook.bids, &mut orderbook.asks),
+    || (&mut orderbook.asks, &mut orderbook.bids),
+  );
+
+  // Collect from the paying side, capping each payment at the order's
+  // remaining margin.
+  let mut collected = units::usdc(0);
+  let mut payer_index = 0;
+  while (payer_index < payers.length()) {
+    let payer = payers.borrow_mut(payer_index);
+    let payment = risk::funding_payment(
+      payer.price(),
+      payer.size(),
+      rate_bps,
+    ).min(payer.margin());
+    let new_margin = payer.margin().sub(payment);
+    payer.update_margin(new_margin);
+    collected = collected.add(payment);
+    payer_index = payer_index + 1;
+  };
+
+  // Distribute pro-rata by notional (price * size, one scaling divided
+  // back out), in u128 to survive double-scaled products.
+  let float_scaling = units::float_scaling() as u128;
+  let mut total_notional: u128 = 0;
+  let mut receiver_index = 0;
+  while (receiver_index < receivers.length()) {
+    let receiver = receivers.borrow(receiver_index);
+    total_notional = total_notional
+      + (receiver.price().value() as u128)
+        * (receiver.size().value() as u128) / float_scaling;
+    receiver_index = receiver_index + 1;
+  };
+
+  let mut distributed = units::usdc(0);
+  receiver_index = 0;
+  while (receiver_index < receivers.length()) {
+    let receiver = receivers.borrow_mut(receiver_index);
+    let notional = (receiver.price().value() as u128)
+      * (receiver.size().value() as u128) / float_scaling;
+    let share = units::usdc_from_u128(
+      (collected.value() as u128) * notional / total_notional,
+    );
+    let new_margin = receiver.margin().add(share);
+    receiver.update_margin(new_margin);
+    distributed = distributed.add(share);
+    receiver_index = receiver_index + 1;
+  };
+
+  (collected, distributed)
+}
 
 /// Remove every liquidated bid in one pass, emitting `PositionLiquidated`
 /// per removal. `pool_id` only feeds the emitted events.

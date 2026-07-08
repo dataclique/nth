@@ -9,17 +9,16 @@ trading environment.
 
 ## Module Map
 
-| File                     | Module              | Responsibility                                                          |
-| ------------------------ | ------------------- | ----------------------------------------------------------------------- |
-| `sources/units.move`     | `strike::units`     | Typed fixed-point quantities: `Price`, `Size`, `Leverage`, `UsdcAmount` |
-| `sources/risk.move`      | `strike::risk`      | Margin and liquidation formulas, all arithmetic in `u128`               |
-| `sources/constants.move` | `strike::constants` | `FLOAT_SCALING` (10^6), default maintenance margin rate                 |
-| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks                |
-| `sources/order.move`     | `strike::order`     | `Order` struct, `Side` enum, `OrderId`                                  |
-| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, events                 |
-| `sources/pool.move`      | `strike::pool`      | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle        |
-| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                                  |
-| `sources/oracle.move`    | `strike::oracle`    | Price feed object for a pool                                            |
+| File                     | Module              | Responsibility                                                      |
+| ------------------------ | ------------------- | ------------------------------------------------------------------- |
+| `sources/units.move`     | `strike::units`     | Typed fixed-point quantities and `FLOAT_SCALING` (10^6)             |
+| `sources/risk.move`      | `strike::risk`      | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
+| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
+| `sources/order.move`     | `strike::order`     | `Order` struct, `Side` enum, `OrderId`                              |
+| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, events             |
+| `sources/pool.move`      | `strike::pool`      | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
+| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                              |
+| `sources/oracle.move`    | `strike::oracle`    | Price feed object for a pool                                        |
 
 ## Core Components
 
@@ -37,6 +36,7 @@ the main interface for:
 - Fund handling through the vault
 - Oracle price updates (`update_price`, gated by `PriceCap`)
 - Liquidation sweeps (`check_liquidations`)
+- Funding rounds (`update_funding`, permissionless, once per interval)
 
 Order placement validates everything at the boundary before any state changes:
 account ownership, non-zero price and size, the leverage cap, and a non-zero
@@ -50,6 +50,11 @@ thresholds are in [liquidation.md](liquidation.md).
 Matching enforces self-trade prevention: an incoming order that would cross a
 resting order from the same margin account aborts with `ESelfMatch` rather than
 filling against it or trading through it.
+
+`update_funding` runs a funding round — margin bookkeeping that tethers the book
+to the oracle by moving margin from the side trading away from spot to the other
+side. It is permissionless and rate-limited to once per interval
+(`EFundingTooSoon`). See [funding.md](funding.md).
 
 ### PriceCap
 
