@@ -5,7 +5,7 @@
 The Strike Protocol uses a float scaling mechanism to handle decimal numbers in
 Move, which doesn't natively support floating-point arithmetic. We use a scaling
 factor of 1,000,000 (6 decimal places) to represent decimal values as integers:
-`constants::FLOAT_SCALING = 10^6`, read via `constants::float_scaling()`.
+`units::FLOAT_SCALING = 10^6`, read via `units::float_scaling()`.
 
 The factor is not arbitrary. It MUST equal 10^(USDC decimals): USDC has 6
 decimals (see
@@ -56,22 +56,22 @@ quantities. Human-readable formulas are in [margin.md](margin.md) and
 
 ### Notation
 
-| Symbol               | Meaning                                                     |
-| -------------------- | ----------------------------------------------------------- |
-| $s$                  | Fixed-point scale, $10^6$ (`constants::float_scaling()`)    |
+| Symbol               | Meaning                                                             |
+| -------------------- | ------------------------------------------------------------------- |
+| $s$                  | Fixed-point scale, $10^6$ (`units::float_scaling()`)                |
 | $x$, $\hat{x}$       | A human-readable value and its on-chain form, $\hat{x} = x \cdot s$ |
-| $P$, $\hat{P}$       | Price (USDC per token)                                      |
-| $S$, $\hat{S}$       | Position size (tokens)                                      |
-| $L$, $\hat{L}$       | Leverage multiplier                                         |
-| $r_m$                | Maintenance margin rate, in percent                         |
-| $M$                  | Locked margin, in USDC base units                           |
-| $M_i$                | Initial margin, in USDC base units                          |
-| $M_{\mathrm{maint}}$ | Maintenance margin, in USDC base units                      |
-| $\Delta P$           | Liquidation price buffer (see [liquidation.md](liquidation.md)) |
+| $P$, $\hat{P}$       | Price (USDC per token)                                              |
+| $S$, $\hat{S}$       | Position size (tokens)                                              |
+| $L$, $\hat{L}$       | Leverage multiplier                                                 |
+| $r_m$                | Maintenance margin rate, in percent                                 |
+| $M$                  | Locked margin, in USDC base units                                   |
+| $M_i$                | Initial margin, in USDC base units                                  |
+| $M_{\mathrm{maint}}$ | Maintenance margin, in USDC base units                              |
+| $\Delta P$           | Liquidation price buffer (see [liquidation.md](liquidation.md))     |
 
 USDC amounts ($M$, $M_i$, $M_{\mathrm{maint}}$) are already integers in base
-units at scale $s$ (1 USDC = $10^6$ base units) and carry no hat: they are
-never rescaled, only produced by formulas that cancel the scaling factors.
+units at scale $s$ (1 USDC = $10^6$ base units) and carry no hat: they are never
+rescaled, only produced by formulas that cancel the scaling factors.
 
 ### Initial margin
 
@@ -131,8 +131,8 @@ let buffer =
    scaling factor, then wrap it in its type:
 
    ```move
-   units::price(100 * constants::float_scaling())   // 100 USDC
-   units::leverage(2 * constants::float_scaling())  // 2x
+   units::price(100 * units::float_scaling())   // 100 USDC
+   units::leverage(2 * units::float_scaling())  // 2x
    ```
 
 2. **Multiplying two scaled values** double-scales the result — divide by
@@ -150,9 +150,9 @@ pool::place_leveraged_order(
     &mut pool,
     &mut margin_account,
     order::bid(),
-    units::price(100 * constants::float_scaling()), // price: 100 USDC
-    units::size(10 * constants::float_scaling()),   // size: 10 tokens
-    units::leverage(2 * constants::float_scaling()), // leverage: 2x
+    units::price(100 * units::float_scaling()), // price: 100 USDC
+    units::size(10 * units::float_scaling()),   // size: 10 tokens
+    units::leverage(2 * units::float_scaling()), // leverage: 2x
     test.ctx(),
 );
 ```

@@ -1,15 +1,14 @@
 #[test_only]
 module strike::oracle_tests;
 
-use strike::constants;
 use strike::oracle;
 use strike::units::{Self, Price};
 use sui::test_scenario::{begin, end};
-use sui::test_utils::destroy;
+use std::unit_test::destroy;
 
 const ALICE: address = @0xA;
 
-fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
+fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
 #[test]
 fun test_update_price_overwrites() {

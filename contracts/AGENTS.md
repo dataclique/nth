@@ -10,18 +10,36 @@ Move package `strike`, edition `2024`. The Sui framework dependency is pinned to
 `testnet-v1.75.1` — the same release as the `sui` CLI in `flake.nix` and the
 backend `sui-sdk`. Bump all three together, never one alone.
 
-| File                     | Module              | Contents                                                     |
-| ------------------------ | ------------------- | ------------------------------------------------------------ |
-| `sources/units.move`     | `strike::units`     | `Price`/`Size`/`Leverage`/`UsdcAmount` fixed-point newtypes  |
-| `sources/risk.move`      | `strike::risk`      | Margin/liquidation formulas; ALL u128 scaling arithmetic     |
-| `sources/constants.move` | `strike::constants` | `FLOAT_SCALING` (10^6, USDC's 6 decimals), margin rate       |
-| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks     |
-| `sources/order.move`     | `strike::order`     | `Side` enum + `match_side!`, `OrderId`, `Order` struct       |
-| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, events      |
-| `sources/pool.move`      | `strike::pool`      | `Pool`: vault + orderbook + oracle, entry points for trading |
-| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                       |
-| `sources/oracle.move`    | `strike::oracle`    | Price oracle object                                          |
-| `tests/`                 | `strike::*_tests`   | One `#[test_only]` module per source module                  |
+| File                     | Module              | Contents                                                       |
+| ------------------------ | ------------------- | -------------------------------------------------------------- |
+| `sources/units.move`     | `strike::units`     | Fixed-point newtypes + `FLOAT_SCALING` (10^6, USDC's decimals) |
+| `sources/risk.move`      | `strike::risk`      | Margin/liquidation/funding formulas; ALL u128 scaling math     |
+| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks       |
+| `sources/order.move`     | `strike::order`     | `Side` enum + `match_side!`, `OrderId`, `Order` struct         |
+| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, funding       |
+| `sources/pool.move`      | `strike::pool`      | `Pool`: vault + orderbook + oracle, entry points, cadence      |
+| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                         |
+| `sources/oracle.move`    | `strike::oracle`    | Price oracle object                                            |
+| `tests/`                 | `strike::*_tests`   | One `#[test_only]` module per source module                    |
+
+## Module Organization
+
+Package by domain, never by kind. A module is one domain concept with its data,
+its operations, and its constants together:
+
+- **No grab-bag modules.** `types`, `constants`, `utils`, `helpers`, `common`
+  are banned names and banned concepts — they scale into dumping grounds where
+  nothing can be found. This package already dissolved both a `types` and a
+  `constants` module.
+- **Constants live with the code that owns their meaning.** `FLOAT_SCALING` is
+  the unit system's, so it lives in `units`; the funding rate cap is applied
+  inside `risk::funding_rate_bps`, so it lives in `risk`; the funding interval
+  and default margin rate parameterize `Pool`, so they live in `pool`. Placement
+  follows the consumer that defines the semantics, not the syntactic category
+  "constant".
+- **The test for a new item's home:** which module's doc comment would have to
+  explain it? That module owns it. If no existing module's domain covers it, the
+  item is a new domain — give it a new, domain-named module.
 
 Build and test from `contracts/`, inside the dev shell:
 
@@ -42,12 +60,11 @@ blindness unrepresentable. Domain logic operates on domain types end to end:
   The `side.is_bid()` projection is reserved for event payload projection; using
   it for domain branching is a violation.
 - **`Price`, `Size`, `Leverage`, `UsdcAmount` (`strike::units`), never bare
-  `u64`.** All four are fixed-point values scaled by
-  `constants::float_scaling()` (or USDC base units, which share the 10^6 scale —
-  `units.move` documents the coupling). They are NOT interchangeable:
-  multiplying two scaled values double-scales, and mixing units silently
-  corrupts margin math. A bare `u64` crossing a function boundary for any of
-  these quantities is a bug.
+  `u64`.** All four are fixed-point values scaled by `units::float_scaling()`
+  (or USDC base units, which share the 10^6 scale — `units.move` documents the
+  coupling). They are NOT interchangeable: multiplying two scaled values
+  double-scales, and mixing units silently corrupts margin math. A bare `u64`
+  crossing a function boundary for any of these quantities is a bug.
 - **`OrderId` (`strike::order`) is the cancellation key.** Unlike
   `(account, price)` it stays unique when one account rests several orders at
   the same price level. Never key order lookup on anything else.

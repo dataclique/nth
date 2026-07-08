@@ -24,9 +24,9 @@ Fixed-point encoding ($10^6$ scale, shared with USDC base units) is in
 | $M_{\mathrm{maint}}$ | Maintenance margin (USDC)                                        |
 | $S_u$                | Unfilled size remaining on a resting order                       |
 
-On-chain, $P$, $S$, and $L$ are stored as integers scaled by $s = 10^6$
-(the value of `constants::float_scaling()`); $M_i$ and $M_{\mathrm{maint}}$
-are USDC base units at the same scale (1 USDC = $10^6$ base units).
+On-chain, $P$, $S$, and $L$ are stored as integers scaled by $s = 10^6$ (the
+value of `units::float_scaling()`); $M_i$ and $M_{\mathrm{maint}}$ are USDC base
+units at the same scale (1 USDC = $10^6$ base units).
 
 ## MarginAccount
 
@@ -228,8 +228,8 @@ The 50 USDC that backed the filled token stays in the vault.
 | Place / close / liquidation sweep                                  | `strike::pool`                     |
 | Matching, cancel, book sweep                                       | `strike::orderbook`                |
 | Vault balance                                                      | `strike::vault`                    |
-| Typed quantities                                                   | `strike::units`                    |
-| $s = 10^6$, default $r_m$                                          | `strike::constants`                |
+| Typed quantities, $s = 10^6$                                       | `strike::units`                    |
+| Default $r_m$, funding cadence                                     | `strike::pool`                     |
 
 All cross-quantity arithmetic runs in `u128` inside `risk.move`; no other module
 multiplies prices, sizes, or leverage.
