@@ -1,0 +1,38 @@
+[package]
+name = "strike-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Property-based fuzzing harness for the strike Move contracts."
+
+[dependencies]
+proptest = "1"
+
+# The simulacrum executor runs generated operation sequences against the real
+# compiled Move package in an in-memory Sui. It pulls the sui execution stack
+# (heavy), so it is gated behind the `simulacrum` feature; the model-based
+# proptest suite builds and runs without it.
+simulacrum = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1", optional = true }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1", optional = true }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1", optional = true }
+shared-crypto = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1", optional = true }
+anyhow = { version = "1", optional = true }
+
+[features]
+default = []
+simulacrum = [
+  "dep:simulacrum",
+  "dep:sui-types",
+  "dep:sui-move-build",
+  "dep:shared-crypto",
+  "dep:anyhow",
+]
+
+[[test]]
+name = "model_props"
+path = "tests/model_props.rs"
+
+[[test]]
+name = "onchain_props"
+path = "tests/onchain_props.rs"
+required-features = ["simulacrum"]
