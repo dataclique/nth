@@ -1,13 +1,12 @@
 #[test_only]
 module strike::order_tests;
 
-use strike::constants;
 use strike::order::{Self, Order};
 use strike::units::{Self, Price, Size};
 
-fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
+fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
-fun sz(value: u64): Size { units::size(value*constants::float_scaling()) }
+fun sz(value: u64): Size { units::size(value*units::float_scaling()) }
 
 fun new_order(size: Size, ctx: &TxContext): Order {
   order::new(
@@ -15,16 +14,16 @@ fun new_order(size: Size, ctx: &TxContext): Order {
     order::bid(),
     px(100),
     size,
-    units::leverage(2*constants::float_scaling()),
-    units::usdc(500*constants::float_scaling()),
+    units::leverage(2*units::float_scaling()),
+    units::usdc(500*units::float_scaling()),
     ctx,
   )
 }
 
 #[test]
 fun test_match_side_dispatches_bid_and_ask() {
-  assert!(order::bid().match_side!(|| 1, || 2) == 1, 0);
-  assert!(order::ask().match_side!(|| 1, || 2) == 2, 1);
+  assert!(order::bid().match_side!(|| 1u64, || 2u64) == 1, 0);
+  assert!(order::ask().match_side!(|| 1u64, || 2u64) == 2, 1);
 }
 
 #[test]

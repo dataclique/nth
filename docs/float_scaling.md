@@ -5,7 +5,7 @@
 The Strike Protocol uses a float scaling mechanism to handle decimal numbers in
 Move, which doesn't natively support floating-point arithmetic. We use a scaling
 factor of 1,000,000 (6 decimal places) to represent decimal values as integers:
-`constants::FLOAT_SCALING = 10^6`, read via `constants::float_scaling()`.
+`units::FLOAT_SCALING = 10^6`, read via `units::float_scaling()`.
 
 The factor is not arbitrary. It MUST equal 10^(USDC decimals): USDC has 6
 decimals (see
@@ -58,7 +58,7 @@ quantities. Human-readable formulas are in [margin.md](margin.md) and
 
 | Symbol               | Meaning                                                             |
 | -------------------- | ------------------------------------------------------------------- |
-| $s$                  | Fixed-point scale, $10^6$ (`constants::float_scaling()`)            |
+| $s$                  | Fixed-point scale, $10^6$ (`units::float_scaling()`)                |
 | $x$, $\hat{x}$       | A human-readable value and its on-chain form, $\hat{x} = x \cdot s$ |
 | $P$, $\hat{P}$       | Price (USDC per token)                                              |
 | $S$, $\hat{S}$       | Position size (tokens)                                              |
@@ -131,8 +131,8 @@ let buffer =
    scaling factor, then wrap it in its type:
 
    ```move
-   units::price(100 * constants::float_scaling())   // 100 USDC
-   units::leverage(2 * constants::float_scaling())  // 2x
+   units::price(100 * units::float_scaling())   // 100 USDC
+   units::leverage(2 * units::float_scaling())  // 2x
    ```
 
 2. **Multiplying two scaled values** double-scales the result — divide by
@@ -150,9 +150,9 @@ pool::place_leveraged_order(
     &mut pool,
     &mut margin_account,
     order::bid(),
-    units::price(100 * constants::float_scaling()), // price: 100 USDC
-    units::size(10 * constants::float_scaling()),   // size: 10 tokens
-    units::leverage(2 * constants::float_scaling()), // leverage: 2x
+    units::price(100 * units::float_scaling()), // price: 100 USDC
+    units::size(10 * units::float_scaling()),   // size: 10 tokens
+    units::leverage(2 * units::float_scaling()), // leverage: 2x
     test.ctx(),
 );
 ```

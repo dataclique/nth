@@ -1,7 +1,6 @@
 #[test_only]
 module strike::orderbook_tests;
 
-use strike::constants;
 use strike::order::{Self, Order};
 use strike::orderbook;
 use strike::pool::{Self, Pool, PriceCap};
@@ -27,22 +26,22 @@ const BOB: address = @0xB;
 // Carol only appears in tests that need an account richer than setup's 1000
 const CAROL: address = @0xC;
 
-fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
+fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
-fun sz(value: u64): Size { units::size(value*constants::float_scaling()) }
+fun sz(value: u64): Size { units::size(value*units::float_scaling()) }
 
 fun lev(value: u64): Leverage {
-  units::leverage(value*constants::float_scaling())
+  units::leverage(value*units::float_scaling())
 }
 
-fun usdc_of(value: u64): u64 { value*constants::float_scaling() }
+fun usdc_of(value: u64): u64 { value*units::float_scaling() }
 
 fun setup(test: &mut Scenario) {
   next_tx(test, ALICE);
   {
     // pool::new shares the Pool and returns its PriceCap.
     let price_cap = pool::new(
-      constants::default_maintenance_margin_rate(),
+      pool::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
@@ -395,7 +394,7 @@ fun test_liquidations() {
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 3, 1);
     assert!(orderbook::asks_length(orderbook) == 2, 2);
-    // 25*constants::float_scaling()/100 = 0.25 USDC
+    // 25*units::float_scaling()/100 = 0.25 USDC
     assert!(
       margin_account.balance() == usdc_of(96) + usdc_of(25)/100,
       3,
@@ -436,7 +435,7 @@ fun test_liquidations() {
     // Check vault balance - should contain all the margin from liquidated
     // positions + asks orders
     let vault = pool::borrow_vault(&pool);
-    // 75*constants::float_scaling()/100 = 0.75 USDC
+    // 75*units::float_scaling()/100 = 0.75 USDC
     assert!(
       vault.balance() == usdc_of(118 + 105 + 220) + usdc_of(75)/100,
       8,
@@ -517,7 +516,7 @@ fun test_liquidations_asks() {
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 3, 1);
     assert!(orderbook::asks_length(orderbook) == 2, 2);
-    // 25*constants::float_scaling()/100 = 0.25 USDC
+    // 25*units::float_scaling()/100 = 0.25 USDC
     assert!(
       margin_account.balance() == usdc_of(96) + usdc_of(25)/100,
       3,
@@ -546,7 +545,7 @@ fun test_liquidations_asks() {
 
     // all 3 bids should be in vault + liquidated ask
     let vault = pool::borrow_vault(&pool);
-    // 75*constants::float_scaling()/100 = 0.75 USDC
+    // 75*units::float_scaling()/100 = 0.75 USDC
     assert!(
       vault.balance() == usdc_of(100+118+360+220) + usdc_of(75)/100,
       7,
@@ -1234,7 +1233,7 @@ fun test_no_liquidation_just_above_threshold() {
     // One base unit above the threshold: the position survives.
     pool::set_token_price(
       &mut pool,
-      units::price(95*constants::float_scaling() + 1),
+      units::price(95*units::float_scaling() + 1),
       test.ctx(),
     );
     pool::check_liquidations(&mut pool);
@@ -1388,7 +1387,7 @@ fun test_wrong_pool_cap_aborts() {
     // Bob creates a second pool: pool::new shares it and returns its
     // PriceCap directly, distinct from Alice's cap for the setup pool.
     let cap_b = pool::new(
-      constants::default_maintenance_margin_rate(),
+      pool::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
