@@ -2,31 +2,30 @@
 
 ## Overview
 
-The Strike Protocol uses a float scaling mechanism to handle decimal numbers
-in Move, which doesn't natively support floating-point arithmetic. We use a
-scaling factor of 1,000,000 (6 decimal places) to represent decimal values as
-integers: `constants::FLOAT_SCALING = 10^6`, read via
-`constants::float_scaling()`.
+The Strike Protocol uses a float scaling mechanism to handle decimal numbers in
+Move, which doesn't natively support floating-point arithmetic. We use a scaling
+factor of 1,000,000 (6 decimal places) to represent decimal values as integers:
+`constants::FLOAT_SCALING = 10^6`, read via `constants::float_scaling()`.
 
 The factor is not arbitrary. It MUST equal 10^(USDC decimals): USDC has 6
 decimals (see
 [`usdc.move` in circlefin/stablecoin-sui](https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move),
 where `create_currency` is called with `decimals = 6`), so one factor of
 `FLOAT_SCALING` cancels exactly against USDC's base-unit denominator. This is
-what lets `risk::margin_required` divide a double-scaled `price * size`
-product by scaled leverage and land directly in `Balance<USDC>` base units.
+what lets `risk::margin_required` divide a double-scaled `price * size` product
+by scaled leverage and land directly in `Balance<USDC>` base units.
 
 ## Why Float Scaling?
 
-1. **Move Language Limitation**: Move doesn't support floating-point numbers,
-   so decimal values are represented as scaled integers.
+1. **Move Language Limitation**: Move doesn't support floating-point numbers, so
+   decimal values are represented as scaled integers.
 
 2. **Precision**: 6 decimal places provide sufficient precision for financial
    calculations.
 
 3. **USDC coupling**: matching USDC's 6 decimals means scaled protocol
-   quantities and USDC base units share one scale, so margin amounts convert
-   to coin balances without a rescaling step.
+   quantities and USDC base units share one scale, so margin amounts convert to
+   coin balances without a rescaling step.
 
 ## Typed Quantities
 
@@ -40,10 +39,10 @@ defines one newtype per quantity:
 | `Leverage`   | Position multiplier (2x = `2 * float_scaling()`) | `float_scaling()` |
 | `UsdcAmount` | USDC amount in base units (1 USDC = 10^6)        | USDC's 6 decimals |
 
-All four share the 10^6 scale but are **not interchangeable**: multiplying
-two scaled values yields a double-scaled result, and mixing units silently
-corrupts margin math. The separate types make such mixing a compile error
-instead of a silent bug.
+All four share the 10^6 scale but are **not interchangeable**: multiplying two
+scaled values yields a double-scaled result, and mixing units silently corrupts
+margin math. The separate types make such mixing a compile error instead of a
+silent bug.
 
 ## Where the Arithmetic Lives
 
