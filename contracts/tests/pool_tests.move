@@ -40,7 +40,7 @@ fun setup(test: &mut Scenario) {
   {
     // pool::new shares the Pool and returns its PriceCap.
     let price_cap = pool::new(
-      constants::default_maintance_margin_rate(),
+      constants::default_maintenance_margin_rate(),
       px(100),
       test.ctx(),
     );
@@ -647,6 +647,114 @@ fun test_update_price_to_zero_aborts() {
     // Unreachable, but the objects must be consumed syntactically.
     return_shared(pool);
     transfer::public_transfer(cap, ALICE);
+  };
+  end(test);
+}
+
+#[test]
+fun test_update_price_via_price_cap() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+    let cap = take_from_address<PriceCap>(&test, ALICE);
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(95),
+      sz(5),
+      lev(4),
+      test.ctx(),
+    );
+
+    pool::update_price(&mut pool, &cap, px(80), test.ctx());
+    pool::check_liquidations(&mut pool);
+
+    let orderbook = pool::borrow_orderbook(&pool);
+    assert!(orderbook::bids_length(orderbook) == 0, 1);
+
+    return_shared(pool);
+    transfer::public_transfer(cap, ALICE);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EWrongPool)]
+fun test_update_price_with_foreign_cap_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, BOB);
+  {
+    let cap_b = pool::new(
+      constants::default_maintenance_margin_rate(),
+      px(100),
+      test.ctx(),
+    );
+
+    let mut pool_a = take_shared<Pool>(&test);
+    pool::update_price(&mut pool_a, &cap_b, px(50), test.ctx());
+
+    return_shared(pool_a);
+    transfer::public_transfer(cap_b, BOB);
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EInvalidLeverage)]
+fun test_zero_leverage_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(10),
+      units::leverage(0),
+      test.ctx(),
+    );
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EInvalidLeverage)]
+fun test_leverage_above_max_aborts() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(100),
+      sz(10),
+      lev(5),
+      test.ctx(),
+    );
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
   };
   end(test);
 }

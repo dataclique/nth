@@ -79,6 +79,7 @@ public struct PositionClosed has copy, drop {
   margin_account_id: ID,
   price: u64,
   is_bid: bool,
+  margin: u64,
 }
 
 // === Public Functions ===
@@ -267,12 +268,18 @@ public fun close_position(
     margin_account_id: object::id(margin_account),
     price: price.value(),
     is_bid: side.is_bid(),
+    margin: amount_to_withdraw.value(),
   });
 }
 
 /// Sweep both book sides once, removing every position past its
 /// liquidation threshold at the current oracle price. Anyone may call
 /// this; each removal emits `PositionLiquidated`.
+///
+/// The sweep reads whatever price is in the oracle — there is no
+/// staleness guard yet (see `oracle::last_update_time`). Losing the
+/// pool's `PriceCap` permanently disables `update_price`; document
+/// recovery procedures before mainnet.
 public fun check_liquidations(pool: &mut Pool) {
   assert_version(pool);
   let current_price = oracle::price(&pool.oracle);

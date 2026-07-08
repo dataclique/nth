@@ -7,7 +7,7 @@ use strike::risk;
 use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
 
 /// Maintenance margin rate used across the boundary tests (25%), matching
-/// `constants::default_maintance_margin_rate()`.
+/// `constants::default_maintenance_margin_rate()`.
 const RATE: u64 = 25;
 
 fun px(value: u64): Price { units::price(value*constants::float_scaling()) }
