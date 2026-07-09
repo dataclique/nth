@@ -263,7 +263,7 @@ fun test_vault_conserves_value_across_mixed_flow() {
 
     // Drop to 80: liquidates the 4x bid at 95 (95 - 0 >= 80).
     pool::set_token_price(&mut pool, px(80), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);
@@ -310,7 +310,7 @@ fun test_liquidated_order_margin_stays_in_vault() {
     assert!(account_after_place == usdc_of(1000) - margin, 1);
 
     pool::set_token_price(&mut pool, px(80), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);
@@ -463,7 +463,7 @@ fun test_check_liquidations_on_empty_book_is_noop() {
 
     // A sweep over a book with no resting orders must complete without
     // aborting and leave both sides empty.
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -523,7 +523,7 @@ fun test_check_liquidations_removes_multiple_bids_and_asks_in_one_sweep() {
     // prices (100 and 95), so one sweep must remove more than one order
     // (the loop-until-none behavior). The short at 110 survives a crash.
     pool::set_token_price(&mut pool, px(50), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -531,7 +531,7 @@ fun test_check_liquidations_removes_multiple_bids_and_asks_in_one_sweep() {
 
     // Round 2 — spike to 120: the short at 110 liquidates.
     pool::set_token_price(&mut pool, px(120), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 3);
@@ -575,7 +575,7 @@ fun test_pool_new_seeds_oracle_with_initial_price() {
     // No set_token_price: the sweep runs against whatever `pool::new`
     // seeded the oracle with. Liquidation here proves the initial price
     // actually reached the oracle (100 - 0 >= 100).
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -673,7 +673,7 @@ fun test_update_price_via_price_cap() {
     );
 
     pool::update_price(&mut pool, &cap, px(80), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -704,6 +704,40 @@ fun test_update_price_with_foreign_cap_aborts() {
     return_shared(pool_a);
     transfer::public_transfer(cap_b, BOB);
   };
+  end(test);
+}
+
+#[test, expected_failure(abort_code = pool::EStaleOracle)]
+fun stale_oracle_aborts_liquidation_sweep() {
+  let mut test = begin(@0xF);
+  setup(&mut test);
+
+  next_tx(&mut test, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
+
+    pool::place_leveraged_order(
+      &mut pool,
+      &mut margin_account,
+      order::bid(),
+      px(95),
+      sz(5),
+      lev(4),
+      test.ctx(),
+    );
+
+    return_shared(pool);
+    margin_account.keep(test.ctx());
+  };
+
+  test.later_epoch(pool::max_oracle_staleness_ms() + 1, ALICE);
+  {
+    let mut pool = take_shared<Pool>(&test);
+    pool::check_liquidations(&mut pool, test.ctx());
+    return_shared(pool);
+  };
+
   end(test);
 }
 

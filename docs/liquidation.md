@@ -3,9 +3,9 @@
 Used formulas from
 [ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
 
-Liquidation occurs when the current price reaches the liquidation price, causing
-the position's margin to fall below the required maintenance margin level. The
-position is then closed at the bankruptcy price (0% margin level).
+Liquidation occurs when the oracle price crosses a position's liquidation
+threshold: locked margin falls to the maintenance margin level (or below). The
+position is then removed from the book; its collateral stays in the pool vault.
 
 ## Formulas
 
@@ -106,8 +106,9 @@ product runs in `u128`: double-scaled values like $Price \times Size$ overflow
      liquidated on the downside.
    - **Short**: liquidated when $CurrentPrice \ge EntryPrice + Buffer$.
 
-`pool::check_liquidations` drives the sweep: it reads the current price from the
-pool's oracle and calls `orderbook::remove_liquidated_bids` /
+`pool::check_liquidations` drives the sweep: it rejects stale oracle prices
+(older than `pool::max_oracle_staleness_ms()`), then reads the current price
+from the pool's oracle and calls `orderbook::remove_liquidated_bids` /
 `remove_liquidated_asks`, each a single O(n) pass that removes every position
 past its threshold. Each removal emits a `PositionLiquidated` event carrying
 both the position's entry price and the oracle price that triggered it. The

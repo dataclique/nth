@@ -403,7 +403,7 @@ fun test_liquidations() {
 
     // Drop price of token from 100 to 80
     pool::set_token_price(&mut pool, px(80), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     // Only bid order with price 95 and size 5 should be liquidated
     let orderbook = pool::borrow_orderbook(&pool);
@@ -525,7 +525,7 @@ fun test_liquidations_asks() {
 
     // Raise price of token from 100 to 120
     pool::set_token_price(&mut pool, px(120), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     // Only ask order with 110 price should be liquidated
     let orderbook = pool::borrow_orderbook(&pool);
@@ -1199,7 +1199,7 @@ fun test_liquidation_at_exact_threshold_price() {
     // Price exactly at entry: entry - 0 >= current holds, so the
     // position liquidates (<=, not <).
     pool::set_token_price(&mut pool, px(95), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -1237,7 +1237,7 @@ fun test_no_liquidation_just_above_threshold() {
       units::price(95*constants::float_scaling() + 1),
       test.ctx(),
     );
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 1, 1);
@@ -1272,14 +1272,14 @@ fun test_low_leverage_long_survives_crash_to_near_zero() {
 
     // One dollar above the liquidation price: survives.
     pool::set_token_price(&mut pool, px(26), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 1, 1);
 
     // Exactly at the liquidation price: liquidated.
     pool::set_token_price(&mut pool, px(25), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);
@@ -1366,7 +1366,7 @@ fun test_price_cap_updates_price() {
     // Move the oracle through the capability-gated path and verify the
     // liquidation sweep runs against the NEW price.
     pool::update_price(&mut pool, &cap, px(80), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -1917,7 +1917,7 @@ fun test_liquidation_uses_full_size_for_partially_filled_order() {
     // order would survive. This documents the known partial-fill /
     // liquidation interaction as it exists today.
     pool::set_token_price(&mut pool, px(100), test.ctx());
-    pool::check_liquidations(&mut pool);
+    pool::check_liquidations(&mut pool, test.ctx());
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);

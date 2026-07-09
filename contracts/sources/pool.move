@@ -15,6 +15,13 @@ use sui::event;
 /// can migrate shared pools explicitly instead of operating on stale state.
 const POOL_VERSION: u64 = 1;
 
+/// Maximum age of the oracle price before `check_liquidations` aborts.
+const MAX_ORACLE_STALENESS_MS: u64 = 3_600_000;
+
+public fun max_oracle_staleness_ms(): u64 {
+  MAX_ORACLE_STALENESS_MS
+}
+
 // === Errors ===
 
 const EInsufficientBalance: u64 = 1;
@@ -26,6 +33,7 @@ const EWrongPool: u64 = 6;
 const EInvalidMaintenanceMarginRate: u64 = 7;
 const EZeroMargin: u64 = 8;
 const EWrongVersion: u64 = 9;
+const EStaleOracle: u64 = 10;
 
 // === Structs ===
 
@@ -276,12 +284,19 @@ public fun close_position(
 /// liquidation threshold at the current oracle price. Anyone may call
 /// this; each removal emits `PositionLiquidated`.
 ///
-/// The sweep reads whatever price is in the oracle — there is no
-/// staleness guard yet (see `oracle::last_update_time`). Losing the
-/// pool's `PriceCap` permanently disables `update_price`; document
-/// recovery procedures before mainnet.
-public fun check_liquidations(pool: &mut Pool) {
+/// Aborts with `EStaleOracle` when the oracle price is older than
+/// `max_oracle_staleness_ms()`. Losing the pool's `PriceCap` disables
+/// `update_price`; recovery requires a package upgrade that re-issues the
+/// cap (see `docs/project_architecture.md`).
+public fun check_liquidations(pool: &mut Pool, ctx: &TxContext) {
   assert_version(pool);
+  let now = tx_context::epoch_timestamp_ms(ctx);
+  let updated = oracle::last_update_time(&pool.oracle);
+  assert!(
+    updated <= now && now - updated <= MAX_ORACLE_STALENESS_MS,
+    EStaleOracle,
+  );
+
   let current_price = oracle::price(&pool.oracle);
   let pool_id = object::id(pool);
 
