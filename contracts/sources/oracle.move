@@ -1,6 +1,7 @@
 module strike::oracle;
 
 use strike::units::{Self, Price};
+use sui::clock::Clock;
 use sui::event;
 
 // === Structs ===
@@ -33,9 +34,9 @@ public(package) fun new(ctx: &mut TxContext): Oracle {
 public(package) fun update_price(
   oracle: &mut Oracle,
   new_price: Price,
-  ctx: &TxContext,
+  clock: &Clock,
 ) {
-  let timestamp = tx_context::epoch_timestamp_ms(ctx);
+  let timestamp = clock.timestamp_ms();
   oracle.price = new_price;
   oracle.last_update_time = timestamp;
 
@@ -53,7 +54,7 @@ public(package) fun price(oracle: &Oracle): Price {
   oracle.price
 }
 
-/// Epoch-milliseconds timestamp of the last `update_price`.
+/// `Clock`-milliseconds timestamp of the last `update_price`.
 public(package) fun last_update_time(oracle: &Oracle): u64 {
   oracle.last_update_time
 }

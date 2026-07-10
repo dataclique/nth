@@ -7,6 +7,7 @@ use strike::risk;
 use strike::strike::{Self, MarginAccount};
 use strike::units::{Price, Size, Leverage};
 use strike::vault::{Self, Vault};
+use sui::clock::Clock;
 use sui::event;
 
 // === Constants ===
@@ -102,6 +103,7 @@ public struct PositionClosed has copy, drop {
 public fun new(
   maintenance_margin_rate: u64,
   initial_price: Price,
+  clock: &Clock,
   ctx: &mut TxContext,
 ): PriceCap {
   assert!(
@@ -114,7 +116,7 @@ public fun new(
   let vault = vault::empty(ctx);
   let orderbook = orderbook::empty(ctx);
   let mut oracle = oracle::new(ctx);
-  oracle::update_price(&mut oracle, initial_price, ctx);
+  oracle::update_price(&mut oracle, initial_price, clock);
 
   let pool_id = object::uid_to_inner(&id);
   event::emit(PoolCreated { pool_id });
@@ -140,12 +142,12 @@ public fun update_price(
   pool: &mut Pool,
   cap: &PriceCap,
   new_price: Price,
-  ctx: &TxContext,
+  clock: &Clock,
 ) {
   assert_version(pool);
   assert!(cap.pool_id == object::id(pool), EWrongPool);
   assert!(!new_price.is_zero(), EInvalidPrice);
-  oracle::update_price(&mut pool.oracle, new_price, ctx);
+  oracle::update_price(&mut pool.oracle, new_price, clock);
 }
 
 #[test_only]
@@ -285,12 +287,13 @@ public fun close_position(
 /// this; each removal emits `PositionLiquidated`.
 ///
 /// Aborts with `EStaleOracle` when the oracle price is older than
-/// `max_oracle_staleness_ms()`. Losing the pool's `PriceCap` disables
-/// `update_price`; recovery requires a package upgrade that re-issues the
-/// cap (see `docs/project_architecture.md`).
-public fun check_liquidations(pool: &mut Pool, ctx: &TxContext) {
+/// `max_oracle_staleness_ms()`. Losing the pool's `PriceCap` permanently
+/// disables `update_price` — there is no re-issuance path — so once the
+/// price exceeds the staleness window every sweep aborts and liquidations
+/// halt (see `docs/project_architecture.md`).
+public fun check_liquidations(pool: &mut Pool, clock: &Clock) {
   assert_version(pool);
-  let now = tx_context::epoch_timestamp_ms(ctx);
+  let now = clock.timestamp_ms();
   let updated = oracle::last_update_time(&pool.oracle);
   assert!(
     updated <= now && now - updated <= MAX_ORACLE_STALENESS_MS,
@@ -324,6 +327,6 @@ fun assert_version(pool: &Pool) {
 
 #[test_only]
 /// Imitate an oracle update without threading the PriceCap through tests.
-public fun set_token_price(pool: &mut Pool, new_price: Price, ctx: &TxContext) {
-  oracle::update_price(&mut pool.oracle, new_price, ctx);
+public fun set_token_price(pool: &mut Pool, new_price: Price, clock: &Clock) {
+  oracle::update_price(&mut pool.oracle, new_price, clock);
 }

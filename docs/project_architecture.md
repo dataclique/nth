@@ -60,13 +60,13 @@ path to the price.
 
 This is a deliberate trust trade-off. Because the cap is the sole price path,
 **losing it freezes the pool's price at its last value**: `update_price` can
-never be called again, `check_liquidations` sweeps forever against a stale
-price, and there is no re-issuance path (adding one would reintroduce the admin
-authority the capability removes). Cap custody is therefore a liveness-critical
+never be called again, and there is no re-issuance path (adding one would
+reintroduce the admin authority the capability removes). Once the frozen price
+is older than `pool::max_oracle_staleness_ms()` (currently one hour), every
+`check_liquidations` call aborts with `EStaleOracle` and liquidations halt
+entirely — the staleness guard bounds bad liquidations from a frozen price but
+cannot substitute for cap custody. Custody is therefore a liveness-critical
 responsibility — hold it in a durable multisig, not a hot key.
-`check_liquidations` aborts when the oracle price is older than
-`pool::max_oracle_staleness_ms()` (currently one hour), which bounds bad
-liquidations from a frozen price but cannot substitute for cap custody.
 
 ### OrderBook
 
@@ -182,7 +182,8 @@ arithmetic lives in `strike::risk` and runs in `u128`. See
 - `check_liquidations` aborts when the oracle price is older than
   `pool::max_oracle_staleness_ms()` (currently one hour)
 - If the `PriceCap` is lost, `update_price` is permanently disabled for that
-  pool until a package upgrade re-issues the capability
+  pool — there is no re-issuance path — and liquidation sweeps abort once the
+  frozen price exceeds the staleness window
 
 ### Fund Protection
 
