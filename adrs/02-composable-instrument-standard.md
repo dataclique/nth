@@ -195,6 +195,37 @@ period, and any explicit rounding remainder. A funding implementation may
 transfer between longs and shorts; a dividend implementation may distribute from
 an issuer reserve; a vault may reinvest PnL instead of distributing it.
 
+#### Permissionless maintenance
+
+The standard does not define a dynamically dispatched `tick` callback. Move
+cannot discover and invoke arbitrary instrument code, and one generic name would
+hide materially different oracle, funding, expiry, NAV, and distress semantics.
+Each implementation instead exposes explicit maintenance functions such as
+`settle_funding`, `settle_expiry`, or `reconcile_nav`.
+
+An implementation can make maintenance permissionless and reward the caller. The
+standard supplies common bookkeeping rather than the calculation:
+
+- a unique action key containing the market, action kind, and period or nonce;
+- idempotence and minimum-time checks;
+- bounded catch-up work and an explicit continuation when more work remains;
+- a reward paid only when authoritative state advances;
+- an explicit, pre-funded reward source and maximum reward;
+- the transaction sender as the default recipient, avoiding arbitrary
+  redirection of a keeper payment;
+- primitive events identifying the action, period, caller, and reward.
+
+Keeper rewards are conserved cash flows. They come from an instrument reserve,
+collected fees, or an explicitly disclosed participant charge; maintenance never
+mints collateral or silently socializes an unfunded payment.
+
+A perpetual should normally update one cumulative funding index per period
+rather than iterate every position hourly. Positions realize the index delta
+when they are next touched, or through separately bounded maintenance batches.
+The perpetual implementation still chooses the oracle, observation rules,
+cadence, funding formula, catch-up policy, and whether anyone can invoke the
+transition.
+
 #### Terminal settlement
 
 An instrument can enter a terminal state that stops new trading and settles open
@@ -569,6 +600,13 @@ production modules.
   minting collateral.
 - `carry_shortfall_uses_declared_distress_path`: a debit larger than available
   collateral cannot underflow or silently clamp.
+- `duplicate_maintenance_cannot_claim_reward`: one action key advances state and
+  pays at most once even when multiple keepers race.
+- `maintenance_reward_requires_state_advance`: a no-op, stale, or premature call
+  cannot drain the maintenance reserve.
+- `funding_index_update_is_bounded`: advancing a perpetual's global funding
+  index does not iterate all open positions, and catch-up work respects an
+  explicit per-call limit.
 
 ### Option and terminal settlement
 
