@@ -1,6 +1,6 @@
 # AGENTS.md — Backend
 
-Standards for the `strikefi` Rust crate. Repo-wide rules (dev shell, GitButler,
+Standards for the `nth` Rust crate. Repo-wide rules (dev shell, GitButler,
 commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## What This Is
@@ -56,10 +56,10 @@ all be clean before every commit. A broken commit on master deploys.
   `.map_err(|e| ...to_string())`. `anyhow` is tolerable only at the binary's top
   level, never inside logic you want to test.
 - **Newtypes over primitives.** Values coming from or going to the chain (object
-  IDs, order ids, prices, sizes, USDC amounts) get newtypes mirroring
-  `strike::units` — a bare `u64` price and a bare `u64` size must not be
-  interchangeable here either. Same scaling rules apply: on-chain values are
-  fixed-point with 10^6 scaling; document the unit on every field.
+  IDs, order ids, prices, sizes, USDC amounts) get newtypes mirroring `units::*`
+  — a bare `u64` price and a bare `u64` size must not be interchangeable here
+  either. Same scaling rules apply: on-chain values are fixed-point with 10^6
+  scaling; document the unit on every field.
 - **No boolean blindness.** Order side is an enum (`Side::Bid | Side::Ask`), not
   `is_bid: bool`, except at the serialization boundary where the on-chain event
   layout dictates the shape.

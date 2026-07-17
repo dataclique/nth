@@ -1,11 +1,11 @@
-# Float Scaling in Strike Protocol
+# Float Scaling in Nth Market
 
 ## Overview
 
-The Strike Protocol uses a float scaling mechanism to handle decimal numbers in
-Move, which doesn't natively support floating-point arithmetic. We use a scaling
+Nth Market uses a float scaling mechanism to handle decimal numbers in Move,
+which doesn't natively support floating-point arithmetic. We use a scaling
 factor of 1,000,000 (6 decimal places) to represent decimal values as integers:
-`units::FLOAT_SCALING = 10^6`, read via `units::float_scaling()`.
+`scaling::float_scaling() = 10^6`.
 
 The factor is not arbitrary. It MUST equal 10^(USDC decimals): USDC has 6
 decimals (see
@@ -30,8 +30,8 @@ the caller deposits into a `Balance<USDC>` without rescaling).
 
 ## Typed Quantities
 
-Scaled values never cross a function boundary as bare `u64`. `strike::units`
-defines one newtype per quantity:
+Scaled values never cross a function boundary as bare `u64`. The `units` package
+defines one newtype per quantity (see `contracts/units/examples/`):
 
 | Type         | Meaning                                          | Scale             |
 | ------------ | ------------------------------------------------ | ----------------- |
@@ -48,17 +48,17 @@ silent bug.
 ## Where the Arithmetic Lives
 
 Every formula that combines quantities — and therefore juggles the scaling
-factors — lives in `strike::risk`, and every intermediate product runs in
-`u128`: a double-scaled product like `price * size` overflows `u64` for
-realistic inputs. No other module multiplies, divides, or rescales these
-quantities. Human-readable formulas are in [margin.md](margin.md) and
+factors — lives in `nth::risk`, and every intermediate product runs in `u128`: a
+double-scaled product like `price * size` overflows `u64` for realistic inputs.
+No other module multiplies, divides, or rescales these quantities.
+Human-readable formulas are in [margin.md](margin.md) and
 [liquidation.md](liquidation.md).
 
 ### Notation
 
 | Symbol               | Meaning                                                             |
 | -------------------- | ------------------------------------------------------------------- |
-| $s$                  | Fixed-point scale, $10^6$ (`units::float_scaling()`)                |
+| $s$                  | Fixed-point scale, $10^6$ (`scaling::float_scaling()`)              |
 | $x$, $\hat{x}$       | A human-readable value and its on-chain form, $\hat{x} = x \cdot s$ |
 | $P$, $\hat{P}$       | Price (USDC per token)                                              |
 | $S$, $\hat{S}$       | Position size (tokens)                                              |
@@ -131,8 +131,8 @@ let buffer =
    scaling factor, then wrap it in its type:
 
    ```move
-   units::price(100 * units::float_scaling())   // 100 USDC
-   units::leverage(2 * units::float_scaling())  // 2x
+   price::price(100 * scaling::float_scaling())   // 100 USDC
+   leverage::leverage(2 * scaling::float_scaling())  // 2x
    ```
 
 2. **Multiplying two scaled values** double-scales the result — divide by
@@ -150,9 +150,9 @@ pool::place_leveraged_order(
     &mut pool,
     &mut margin_account,
     order::bid(),
-    units::price(100 * units::float_scaling()), // price: 100 USDC
-    units::size(10 * units::float_scaling()),   // size: 10 tokens
-    units::leverage(2 * units::float_scaling()), // leverage: 2x
+    price::price(100 * scaling::float_scaling()), // price: 100 USDC
+    size::size(10 * scaling::float_scaling()),   // size: 10 tokens
+    leverage::leverage(2 * scaling::float_scaling()), // leverage: 2x
     test.ctx(),
 );
 ```

@@ -1,6 +1,6 @@
-module strike::order;
+module nth::order;
 
-use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
+use nth::units::{Self, Price, Size, Leverage, UsdcAmount};
 
 // === Side ===
 

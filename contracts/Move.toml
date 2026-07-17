@@ -1,5 +1,5 @@
 [package]
-name = "strike"
+name = "nth"
 version = "0.1.0"
 edition = "2024"
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
@@ -16,6 +16,8 @@ git = "https://github.com/circlefin/stablecoin-sui.git"
 subdir = "packages/usdc"
 rev = "master"
 
+[dependencies.units]
+local = "units"
 
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
 # Revision can be a branch, a tag, and a commit hash.
@@ -29,7 +31,7 @@ rev = "master"
 # Override = { local = "../conflicting/version", override = true }
 
 [addresses]
-strike = "0x0"
+nth = "0x0"
 
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.

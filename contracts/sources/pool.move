@@ -1,12 +1,12 @@
-module strike::pool;
+module nth::pool;
 
-use strike::oracle::{Self, Oracle};
-use strike::order::{Self, Side, OrderId};
-use strike::orderbook::{Self, OrderBook};
-use strike::risk;
-use strike::strike::{Self, MarginAccount};
-use strike::units::{Self, Price, Size, Leverage};
-use strike::vault::{Self, Vault};
+use nth::margin::{Self, MarginAccount};
+use nth::oracle::{Self, Oracle};
+use nth::order::{Self, Side, OrderId};
+use nth::orderbook::{Self, OrderBook};
+use nth::risk;
+use nth::units::{Self, Price, Size, Leverage};
+use nth::vault::{Self, Vault};
 use sui::clock::Clock;
 use sui::event;
 
@@ -24,7 +24,7 @@ public fun max_oracle_staleness_ms(): u64 {
 }
 
 /// Default maintenance margin rate for new pools, in percent of position
-/// notional. The rate's semantics live in `strike::risk`; this is only
+/// notional. The rate's semantics live in `nth::risk`; this is only
 /// the suggested construction parameter.
 const DEFAULT_MAINTENANCE_MARGIN_RATE: u64 = 25;
 
@@ -233,7 +233,7 @@ public fun place_leveraged_order(
   );
 
   // Transfer funds to vault
-  let balance = strike::withdraw(
+  let balance = margin::withdraw(
     margin_account,
     required_margin.value(),
     ctx,
@@ -349,7 +349,7 @@ public fun close_position(
     ctx,
   );
 
-  strike::deposit(margin_account, balance, ctx);
+  margin::deposit(margin_account, balance, ctx);
 
   event::emit(PositionClosed {
     pool_id: object::uid_to_inner(&pool.id),

@@ -1,24 +1,24 @@
-# Strike Protocol Architecture
+# Nth Market Architecture
 
 ## Overview
 
-Strike Protocol is a decentralized trading platform that enables leveraged
-trading of various tokens. Each tradable token has its own setup consisting of
-several key components that work together to provide a secure and efficient
-trading environment.
+Nth Market is a decentralized trading platform that enables leveraged trading of
+various tokens. Each tradable token has its own setup consisting of several key
+components that work together to provide a secure and efficient trading
+environment.
 
 ## Module Map
 
-| File                     | Module              | Responsibility                                                      |
-| ------------------------ | ------------------- | ------------------------------------------------------------------- |
-| `sources/units.move`     | `strike::units`     | Typed fixed-point quantities and `FLOAT_SCALING` (10^6)             |
-| `sources/risk.move`      | `strike::risk`      | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
-| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
-| `sources/order.move`     | `strike::order`     | `Order` struct, `Side` enum, `OrderId`                              |
-| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, events             |
-| `sources/pool.move`      | `strike::pool`      | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
-| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                              |
-| `sources/oracle.move`    | `strike::oracle`    | Price feed object for a pool                                        |
+| File                     | Module           | Responsibility                                                      |
+| ------------------------ | ---------------- | ------------------------------------------------------------------- |
+| `units/sources/*.move`   | `units::*`       | Typed fixed-point quantities and `float_scaling()` ($10^6$)         |
+| `sources/risk.move`      | `nth::risk`      | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
+| `sources/margin.move`    | `nth::margin`    | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
+| `sources/order.move`     | `nth::order`     | `Order` struct, `Side` enum, `OrderId`                              |
+| `sources/orderbook.move` | `nth::orderbook` | CLOB: matching, cancellation, liquidation sweep, events             |
+| `sources/pool.move`      | `nth::pool`      | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
+| `sources/vault.move`     | `nth::vault`     | Pooled USDC collateral                                              |
+| `sources/oracle.move`    | `nth::oracle`    | Price feed object for a pool                                        |
 
 ## Core Components
 
@@ -124,8 +124,8 @@ sender. This pins the account to its recorded `owner`, which `deposit` and
 ### Units and Risk
 
 Prices, sizes, leverage, and USDC amounts are typed fixed-point quantities
-(`strike::units`) scaled by $10^6$, matching USDC's 6 decimals. All
-cross-quantity arithmetic lives in `strike::risk` and runs in `u128`. See
+(`units::*`) scaled by $10^6$, matching USDC's 6 decimals. All cross-quantity
+arithmetic lives in `nth::risk` and runs in `u128`. See
 [float_scaling.md](float_scaling.md) for encoding and [margin.md](margin.md) for
 the financial formulas.
 
@@ -133,7 +133,7 @@ the financial formulas.
 
 ### Account Setup
 
-1. Users create margin accounts (`strike::new` or `strike::new_with_deposit`)
+1. Users create margin accounts (`margin::new` or `margin::new_with_deposit`)
    and keep them at their own address
 2. Deposit USDC into their margin accounts
 3. Only the account owner can deposit to or withdraw from the account

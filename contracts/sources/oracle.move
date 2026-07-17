@@ -1,6 +1,6 @@
-module strike::oracle;
+module nth::oracle;
 
-use strike::units::{Self, Price};
+use nth::units::{Self, Price};
 use sui::clock::Clock;
 use sui::event;
 

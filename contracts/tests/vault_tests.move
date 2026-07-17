@@ -1,8 +1,8 @@
 #[test_only]
-module strike::vault_tests;
+module nth::vault_tests;
 
-use strike::units;
-use strike::vault;
+use nth::units;
+use nth::vault;
 use sui::coin::mint_for_testing;
 use std::unit_test::destroy;
 use usdc::usdc::USDC;

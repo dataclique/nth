@@ -1,4 +1,4 @@
-module strike::vault;
+module nth::vault;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
@@ -7,7 +7,7 @@ use usdc::usdc::USDC;
 // === Structs ===
 
 /// Pooled USDC collateral backing every order and position in a pool.
-/// Only `strike::pool` moves value in or out.
+/// Only `nth::pool` moves value in or out.
 public struct Vault has key, store {
   id: UID,
   balance: Balance<USDC>,
