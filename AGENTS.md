@@ -12,12 +12,12 @@ early perpetual-specific margin and liquidation work; the generic instrument
 architecture is specified in
 [ADR 02](adrs/02-composable-instrument-standard.md).
 
-| Directory    | Contents                                                            | Standards                                  |
-| ------------ | ------------------------------------------------------------------- | ------------------------------------------ |
-| `contracts/` | Sui Move package `nth`: margin accounts, orderbook, pool, oracle    | [contracts/AGENTS.md](contracts/AGENTS.md) |
-| `backend/`   | Rust crate `nth`: Rocket on Shuttle, sqlx, sui-sdk (indexing/cache) | [backend/AGENTS.md](backend/AGENTS.md)     |
-| `frontend/`  | Vite + React + TypeScript dApp using @mysten/dapp-kit               | [frontend/AGENTS.md](frontend/AGENTS.md)   |
-| `docs/`      | Protocol math and design notes                                      | —                                          |
+| Directory    | Contents                                                          | Standards                                  |
+| ------------ | ----------------------------------------------------------------- | ------------------------------------------ |
+| `contracts/` | Sui Move packages: kernel `nth` + instrument packages + `units`   | [contracts/AGENTS.md](contracts/AGENTS.md) |
+| `backend/`   | Rust crate `nth`: indexer + trading API (Rocket/Shuttle/sqlx/sui) | [backend/AGENTS.md](backend/AGENTS.md)     |
+| `frontend/`  | Vite + SolidJS + TypeScript dApp on the Sui wallet standard       | [frontend/AGENTS.md](frontend/AGENTS.md)   |
+| `docs/`      | Protocol math and design notes                                    | —                                          |
 
 ## Development Environment
 
