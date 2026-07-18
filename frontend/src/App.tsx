@@ -1,79 +1,20 @@
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit"
-import { isValidSuiObjectId } from "@mysten/sui/utils"
-import { Box, Container, Flex, Heading } from "@radix-ui/themes"
-import { useState } from "react"
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom"
-import { Counter } from "./Counter"
-import { CreateCounter } from "./CreateCounter"
-import { BackendStatus } from "./BackendStatus"
-import Plot from "./Plot"
+import type { ParentProps } from "solid-js"
+import { A } from "@solidjs/router"
+import WalletButton from "./components/WalletButton"
 
-function App() {
-  const currentAccount = useCurrentAccount()
-  const [counterId, setCounter] = useState(() => {
-    const hash = window.location.hash.slice(1)
-    return isValidSuiObjectId(hash) ? hash : null
-  })
-
+export default function App(props: ParentProps) {
   return (
-    <Router>
-      <>
-        <Flex
-          position="sticky"
-          px="4"
-          py="2"
-          justify="between"
-          style={{
-            borderBottom: "1px solid var(--gray-a2)",
-          }}
-        >
-          <Box>
-            <Heading>dApp Starter Template</Heading>
-            <Link to="/">Home</Link> | <Link to="/plot">Plot</Link>
-          </Box>
-
-          <Box>
-            <ConnectButton />
-          </Box>
-        </Flex>
-
-        <Container>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <>
-                  <BackendStatus />
-                  <Container
-                    mt="5"
-                    pt="2"
-                    px="4"
-                    style={{ background: "var(--gray-a2)", minHeight: 500 }}
-                  >
-                    {currentAccount ? (
-                      counterId ? (
-                        <Counter id={counterId} />
-                      ) : (
-                        <CreateCounter
-                          onCreated={id => {
-                            window.location.hash = id
-                            setCounter(id)
-                          }}
-                        />
-                      )
-                    ) : (
-                      <Heading>Please connect your wallet</Heading>
-                    )}
-                  </Container>
-                </>
-              }
-            />
-            <Route path="/plot" element={<Plot />} />
-          </Routes>
-        </Container>
-      </>
-    </Router>
+    <>
+      <header class="app">
+        <nav>
+          <A class="brand" href="/">
+            Nth Market
+          </A>
+          <A href="/">Markets</A>
+        </nav>
+        <WalletButton />
+      </header>
+      <main>{props.children}</main>
+    </>
   )
 }
-
-export default App

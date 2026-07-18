@@ -5,15 +5,17 @@ style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Stack
 
-Vite 6 + React 18 + TypeScript 5.7 (see `package.json`):
+Vite 6 + **SolidJS** + TypeScript 5.7 (see `package.json`). The dataclique org
+does not use React — never add React, dapp-kit, or Radix React packages.
 
-- **@mysten/dapp-kit** + **@mysten/sui** — wallet connection, Sui RPC, and chain
-  types (`SuiClientProvider` / `WalletProvider` in `src/main.tsx`, networks in
-  `src/networkConfig.ts`)
-- **@tanstack/react-query** — all data fetching; dapp-kit hooks build on it
-- **@radix-ui/themes** (+ colors, icons) — UI components and theming
-- **react-router-dom 7** — routing
-- **lightweight-charts** — price charts
+- **solid-js** + **@solidjs/router** — UI and routing; server state lives in
+  `createResource`
+- **@mysten/wallet-standard** — framework-agnostic wallet discovery, connection,
+  and signing (`src/wallet.ts`); **@mysten/sui** for the `Transaction` builder
+  (`src/tx.ts` maps API `CallSpec`s onto PTBs)
+- **lightweight-charts** — price charts (`src/components/CandleChart.tsx`)
+- `src/api.ts` — typed client for the backend `/v1` API; `src/scale.ts` —
+  branded `10^6` fixed-point units, the only place display conversion happens
 
 ## Commands
 

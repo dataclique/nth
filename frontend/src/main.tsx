@@ -1,26 +1,19 @@
-import React from "react"
-import ReactDOM from "react-dom/client"
-import "@mysten/dapp-kit/dist/index.css"
-import "@radix-ui/themes/styles.css"
+/* @refresh reload */
+import { render } from "solid-js/web"
+import { Route, Router } from "@solidjs/router"
+import App from "./App"
+import Markets from "./pages/Markets"
+import Market from "./pages/Market"
 
-import { SuiClientProvider, WalletProvider } from "@mysten/dapp-kit"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { Theme } from "@radix-ui/themes"
-import App from "./App.tsx"
-import { networkConfig } from "./networkConfig.ts"
-
-const queryClient = new QueryClient()
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <Theme appearance="dark">
-      <QueryClientProvider client={queryClient}>
-        <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
-          <WalletProvider autoConnect>
-            <App />
-          </WalletProvider>
-        </SuiClientProvider>
-      </QueryClientProvider>
-    </Theme>
-  </React.StrictMode>,
-)
+const root = document.getElementById("root")
+if (root) {
+  render(
+    () => (
+      <Router root={App}>
+        <Route path="/" component={Markets} />
+        <Route path="/markets/:id" component={Market} />
+      </Router>
+    ),
+    root,
+  )
+}
