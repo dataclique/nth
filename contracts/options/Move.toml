@@ -1,0 +1,19 @@
+[package]
+name = "options"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies.Sui]
+override = true
+git = "https://github.com/MystenLabs/sui.git"
+subdir = "crates/sui-framework/packages/sui-framework"
+rev = "testnet-v1.75.1"
+
+[dependencies.nth]
+local = ".."
+
+[dependencies.units]
+local = "../units"
+
+[addresses]
+options = "0x0"

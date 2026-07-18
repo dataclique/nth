@@ -6,7 +6,7 @@ commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Package Layout
 
-Four Move packages under `contracts/`, all edition `2024`. The Sui framework
+Five Move packages under `contracts/`, all edition `2024`. The Sui framework
 dependency is pinned to `testnet-v1.75.1` — the same release as the `sui` CLI in
 `flake.nix` and the backend `sui-sdk`. Bump all three together, never one alone.
 
@@ -63,6 +63,18 @@ The complete linear perpetual reference instrument on the standard. Depends on
 | `perpetual/sources/funding.move` | `perpetual::funding`    | Cumulative funding indexes, per-account cursors, accruals       |
 | `perpetual/tests/`               | `perpetual::perp_tests` | Margin, entry, funding, and liquidation coverage                |
 
+### `options/` (`options::*`)
+
+The option family of reference instruments, starting with the European
+cash-settled call. Depends on `nth` and `units`; the kernel imports nothing from
+it.
+
+| File                            | Module                    | Contents                                                    |
+| ------------------------------- | ------------------------- | ----------------------------------------------------------- |
+| `options/sources/european.move` | `options::european`       | Capped European call: premium book, escrowed shorts, expiry |
+| `options/sources/oracle.move`   | `options::oracle`         | Capability-gated underlying price read once at settlement   |
+| `options/tests/`                | `options::european_tests` | Premium, escrow, binding, and reserve-clearing coverage     |
+
 ## Module Organization
 
 Package by domain, never by kind. A module is one domain concept with its data,
@@ -89,6 +101,7 @@ cd contracts/units && sui move test   # units package
 cd contracts && sui move test          # nth package — must be green ALWAYS
 cd contracts/conformance && sui move test # external instrument fixtures
 cd contracts/perpetual && sui move test   # perpetual reference instrument
+cd contracts/options && sui move test     # option reference instruments
 sui move test <filter>                 # run matching tests during iteration
 ```
 

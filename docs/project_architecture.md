@@ -21,6 +21,7 @@ settlement, and liquidation semantics. The perpetual lives in its own
 | `sources/maintenance.move`               | `nth::maintenance`          | Keeper-action periods, idempotence, reward caps             |
 | `sources/instrument_market.move`         | `nth::instrument_market`    | Market-owned positions and settlement cursor checks         |
 | `perpetual/sources/{perp,risk,...}.move` | `perpetual::*`              | Complete linear perpetual reference instrument              |
+| `options/sources/{european,...}.move`    | `options::*`                | Option-family reference instruments                         |
 | `conformance/sources/{linear,...}.move`  | `instrument_conformance::*` | External fixture instruments proving the boundary           |
 
 ## Core Components
@@ -145,6 +146,21 @@ priority, **fills execute at the resting (maker) order's price** with an
 key that stays unique when one account rests several orders at one price level.
 `best_bid_price` / `best_ask_price` views expose the front of each side so
 instruments can derive book-relative quantities such as the funding divergence.
+
+### European option reference instrument
+
+`contracts/options` opens the option family with `options::european` — a capped
+cash-settled European call. One market is one (strike, expiry, payout cap)
+contract; the book trades the option premium. Buyers reserve and pay
+`premium * size`, carried to the seller's free collateral on every fill; sellers
+escrow `payout_cap * size` as position collateral, which fully collateralizes
+the clamped payoff `min(max(S_T - K, 0), cap)` so no liquidation path exists. At
+or after expiry anyone binds the settlement value exactly once from a fresh
+capability-gated underlying price, which turns the market terminal through the
+kernel's one-time transition. Positions then settle permissionlessly and exactly
+once each: shorts carry their payoff into a designated settlement-reserve
+account, longs draw the same amount out (retrying while the reserve is
+unfunded), and the terminal transition releases every remaining balance.
 
 ### Mark price and PriceCap (perpetual)
 
