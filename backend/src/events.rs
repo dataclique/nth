@@ -50,6 +50,7 @@ pub enum KernelEvent {
     ClaimRedeemed(ClaimFlow),
     CarryApplied(CarryApplied),
     MarketTerminated(MarketTerminated),
+    PositionChanged(PositionChanged),
     PositionSettled(PositionSettled),
     PositionForceReduced(PositionForceReduced),
     PeriodClaimed(PeriodClaimed),
@@ -174,6 +175,19 @@ pub struct CarryApplied {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MarketTerminated {
     pub market_id: ObjectId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionChanged {
+    pub market_id: ObjectId,
+    pub account_id: ObjectId,
+    pub is_buy: bool,
+    pub previous_state: u8,
+    #[serde(deserialize_with = "u64_flex")]
+    pub previous_size: u64,
+    pub current_state: u8,
+    #[serde(deserialize_with = "u64_flex")]
+    pub current_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -470,6 +484,9 @@ pub fn decode_event(
         }
         ("instrument_market", "MarketTerminated") => {
             EventKind::Kernel(KernelEvent::MarketTerminated(parse(name, payload)?))
+        }
+        ("position", "PositionChanged") => {
+            EventKind::Kernel(KernelEvent::PositionChanged(parse(name, payload)?))
         }
         ("instrument_market", "PositionSettled") => {
             EventKind::Kernel(KernelEvent::PositionSettled(parse(name, payload)?))

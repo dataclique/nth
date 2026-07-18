@@ -241,26 +241,42 @@ impl Platform {
                 account.free_collateral = account.free_collateral.saturating_sub(flow.amount);
             }
             KernelEvent::ClaimIssued(claim) => {
-                let account = self.account_mut(&claim.market_id, &claim.margin_account_id);
-                account.free_collateral = account
-                    .free_collateral
-                    .saturating_sub(claim.collateral_amount);
-                account.position_collateral += claim.collateral_amount;
-                account.position_size += claim.issued_size.unwrap_or(0);
-                account.exposure = Some(Exposure::Long);
+                {
+                    let account = self.account_mut(&claim.market_id, &claim.margin_account_id);
+                    account.free_collateral = account
+                        .free_collateral
+                        .saturating_sub(claim.collateral_amount);
+                    account.position_collateral += claim.collateral_amount;
+                }
+                let grown = self
+                    .account_mut(&claim.market_id, &claim.margin_account_id)
+                    .position_size
+                    + claim.issued_size.unwrap_or(0);
+                self.set_position(
+                    &claim.market_id,
+                    &claim.margin_account_id,
+                    Exposure::Long,
+                    grown,
+                );
             }
             KernelEvent::ClaimRedeemed(claim) => {
-                let account = self.account_mut(&claim.market_id, &claim.margin_account_id);
-                account.position_collateral = account
-                    .position_collateral
-                    .saturating_sub(claim.collateral_amount);
-                account.free_collateral += claim.collateral_amount;
-                account.position_size = account
+                {
+                    let account = self.account_mut(&claim.market_id, &claim.margin_account_id);
+                    account.position_collateral = account
+                        .position_collateral
+                        .saturating_sub(claim.collateral_amount);
+                    account.free_collateral += claim.collateral_amount;
+                }
+                let shrunk = self
+                    .account_mut(&claim.market_id, &claim.margin_account_id)
                     .position_size
                     .saturating_sub(claim.redeemed_size.unwrap_or(0));
-                if account.position_size == 0 {
-                    account.exposure = Some(Exposure::Flat);
-                }
+                let exposure = if shrunk == 0 {
+                    Exposure::Flat
+                } else {
+                    Exposure::Long
+                };
+                self.set_position(&claim.market_id, &claim.margin_account_id, exposure, shrunk);
             }
             KernelEvent::CarryApplied(carry) => {
                 {
@@ -292,25 +308,41 @@ impl Platform {
             KernelEvent::MarketTerminated(terminated) => {
                 self.market_mut(&terminated.market_id).terminal = true;
             }
+            KernelEvent::PositionChanged(changed) => {
+                self.set_position(
+                    &changed.market_id,
+                    &changed.account_id,
+                    exposure_from_code(changed.current_state),
+                    changed.current_size,
+                );
+            }
             KernelEvent::PositionSettled(settled) => {
-                let account = self.account_mut(&settled.market_id, &settled.margin_account_id);
-                account.position_collateral = 0;
-                account.free_collateral += settled.released_collateral;
-                account.position_size = 0;
-                account.exposure = Some(Exposure::Flat);
+                {
+                    let account = self.account_mut(&settled.market_id, &settled.margin_account_id);
+                    account.position_collateral = 0;
+                    account.free_collateral += settled.released_collateral;
+                }
+                self.set_position(
+                    &settled.market_id,
+                    &settled.margin_account_id,
+                    Exposure::Flat,
+                    0,
+                );
             }
             KernelEvent::PositionForceReduced(reduced) => {
-                let account = self.account_mut(&reduced.market_id, &reduced.margin_account_id);
-                account.position_collateral = account
-                    .position_collateral
-                    .saturating_sub(reduced.released_collateral);
-                account.free_collateral += reduced.released_collateral;
-                account.position_size = reduced.current_size;
-                account.exposure = Some(match reduced.current_state {
-                    1 => Exposure::Long,
-                    2 => Exposure::Short,
-                    _ => Exposure::Flat,
-                });
+                {
+                    let account = self.account_mut(&reduced.market_id, &reduced.margin_account_id);
+                    account.position_collateral = account
+                        .position_collateral
+                        .saturating_sub(reduced.released_collateral);
+                    account.free_collateral += reduced.released_collateral;
+                }
+                self.set_position(
+                    &reduced.market_id,
+                    &reduced.margin_account_id,
+                    exposure_from_code(reduced.current_state),
+                    reduced.current_size,
+                );
             }
             KernelEvent::PeriodClaimed(_) => {}
         }
@@ -396,6 +428,39 @@ impl Platform {
             .accounts
             .entry(account_id.clone())
             .or_default()
+    }
+
+    /// Set one account's net exposure, keeping the market's open interest —
+    /// the sum of open long sizes — consistent with the change.
+    fn set_position(
+        &mut self,
+        market_id: &ObjectId,
+        account_id: &ObjectId,
+        exposure: Exposure,
+        size: u64,
+    ) {
+        let market = self.market_mut(market_id);
+        let account = market.accounts.entry(account_id.clone()).or_default();
+        let previous_long = match account.exposure {
+            Some(Exposure::Long) => account.position_size,
+            _ => 0,
+        };
+        account.exposure = Some(exposure);
+        account.position_size = size;
+        let current_long = match exposure {
+            Exposure::Long => size,
+            _ => 0,
+        };
+        market.open_interest = market.open_interest - previous_long + current_long;
+    }
+}
+
+/// Kernel position state code to exposure: flat `0`, long `1`, short `2`.
+fn exposure_from_code(code: u8) -> Exposure {
+    match code {
+        1 => Exposure::Long,
+        2 => Exposure::Short,
+        _ => Exposure::Flat,
     }
 }
 
@@ -694,6 +759,43 @@ mod tests {
                 maintenance_margin_rate_percent: 25
             }
         ));
+    }
+
+    #[test]
+    fn position_changes_track_exposure_and_open_interest() {
+        let mut platform = Platform::default();
+        let change = |account: &str, state: u8, size: u64| {
+            EventKind::Kernel(KernelEvent::PositionChanged(PositionChanged {
+                market_id: id("0xm"),
+                account_id: id(account),
+                is_buy: state == 1,
+                previous_state: 0,
+                previous_size: 0,
+                current_state: state,
+                current_size: size,
+            }))
+        };
+        platform.apply(&at(0, change("0xa", 1, 10)));
+        platform.apply(&at(0, change("0xb", 2, 10)));
+        let market = platform.market(&id("0xm")).expect("market");
+        assert_eq!(market.open_interest, 10);
+        let alice = market.accounts.get(&id("0xa")).expect("alice");
+        assert_eq!(alice.exposure, Some(Exposure::Long));
+        assert_eq!(alice.position_size, 10);
+
+        platform.apply(&at(1, change("0xa", 1, 4)));
+        assert_eq!(
+            platform.market(&id("0xm")).expect("market").open_interest,
+            4
+        );
+
+        platform.apply(&at(2, change("0xa", 0, 0)));
+        let market = platform.market(&id("0xm")).expect("market");
+        assert_eq!(market.open_interest, 0);
+        assert_eq!(
+            market.accounts.get(&id("0xa")).expect("alice").exposure,
+            Some(Exposure::Flat)
+        );
     }
 
     #[test]
