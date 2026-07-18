@@ -69,12 +69,13 @@ The option family of reference instruments, starting with the European
 cash-settled call. Depends on `nth` and `units`; the kernel imports nothing from
 it.
 
-| File                            | Module              | Contents                                                    |
-| ------------------------------- | ------------------- | ----------------------------------------------------------- |
-| `options/sources/european.move` | `options::european` | Capped European call: premium book, escrowed shorts, expiry |
-| `options/sources/american.move` | `options::american` | American call: European mechanics plus early exercise       |
-| `options/sources/oracle.move`   | `options::oracle`   | Capability-gated underlying price for exercise/settlement   |
-| `options/tests/`                | `options::*_tests`  | Premium, escrow, exercise, binding, reserve clearing        |
+| File                            | Module              | Contents                                                     |
+| ------------------------------- | ------------------- | ------------------------------------------------------------ |
+| `options/sources/european.move` | `options::european` | Capped European call: premium book, escrowed shorts, expiry  |
+| `options/sources/american.move` | `options::american` | American call: European mechanics plus early exercise        |
+| `options/sources/cliquet.move`  | `options::cliquet`  | Cliquet: keeper-run strike resets ratcheting a locked payoff |
+| `options/sources/oracle.move`   | `options::oracle`   | Capability-gated underlying price for exercise/settlement    |
+| `options/tests/`                | `options::*_tests`  | Premium, escrow, exercise, binding, reserve clearing         |
 
 ## Module Organization
 

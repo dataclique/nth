@@ -170,6 +170,15 @@ escrow for the exercised size releases pro rata, and both exposures reduce
 through the standard's forced-settlement transition — the instrument-defined
 trigger is the holder's signature plus a valid assignment rather than distress.
 
+`options::cliquet` is the exotic-payoff demonstration: a ratchet option composed
+entirely from existing kernel transitions. Each reset period is a permissionless
+keeper-rewarded maintenance round that locks in the clamped gain since the
+previous reset and ratchets the strike to the current underlying price; shorts
+escrow `periods * local_cap` per unit — the maximum possible accrued payoff — so
+the exotic stays fully collateralized. After the final reset the accumulated
+payoff binds once and settlement clears through the reserve exactly like the
+European option. No kernel change was needed.
+
 ### Mark price and PriceCap (perpetual)
 
 Creating a perpetual market mints a `PriceCap` and returns it to the caller, who
