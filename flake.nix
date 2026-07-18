@@ -77,7 +77,13 @@
           hooks = {
             nil.enable = true;
             nixfmt.enable = true;
+            # The frontend's eslint flat config imports typescript-eslint
+            # from node_modules, which the nix flake-check sandbox does not
+            # have, so the sandboxed hook cannot lint it. `pnpm lint`
+            # (eslint with --max-warnings 0 semantics) is the frontend lint
+            # gate, run in the dev shell before every commit.
             eslint.enable = true;
+            eslint.excludes = [ "^frontend/" ];
             # deno fmt owns markdown; keep prettier off .md so the two
             # formatters don't fight over the same files.
             prettier.enable = true;
