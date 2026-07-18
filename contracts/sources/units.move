@@ -5,8 +5,8 @@
 /// multiplying two scaled values yields a double-scaled result, and mixing
 /// units silently corrupts margin math. Each quantity therefore gets its
 /// own type; the formulas that combine them (and juggle the scaling
-/// factors) live in `strike::risk`.
-module strike::units;
+/// factors) live in `nth::risk`.
+module nth::units;
 
 // === Fixed-Point Scale ===
 
@@ -144,7 +144,7 @@ const MAX_U64: u128 = 18_446_744_073_709_551_615;
 
 public fun usdc(value: u64): UsdcAmount { UsdcAmount { value } }
 
-/// Checked narrowing for amounts computed in u128 (see `strike::risk`).
+/// Checked narrowing for amounts computed in u128 (see `nth::risk`).
 /// Aborts with `EOverflow` instead of silently truncating — a truncated
 /// margin would pass the zero/balance checks with a sliver of the real
 /// collateral requirement.

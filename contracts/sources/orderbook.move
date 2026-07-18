@@ -1,9 +1,9 @@
-module strike::orderbook;
+module nth::orderbook;
 
-use strike::order::{Self, Order, Side, OrderId};
-use strike::risk;
-use strike::strike::MarginAccount;
-use strike::units::{Self, Price, Size, UsdcAmount};
+use nth::margin::MarginAccount;
+use nth::order::{Self, Order, Side, OrderId};
+use nth::risk;
+use nth::units::{Self, Price, Size, UsdcAmount};
 use sui::event;
 
 // === Errors ===

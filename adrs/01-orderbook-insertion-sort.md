@@ -7,7 +7,7 @@
 
 ## Context
 
-`strike::orderbook` stores each book side as a `vector<Order>` inside the shared
+`nth::orderbook` stores each book side as a `vector<Order>` inside the shared
 `Pool` object, sorted best-price-first (bids descending, asks ascending). The
 matching engine consumes from index 0, cancellation and liquidation remove in
 place — all order-preserving. The only operation that disturbs sortedness is
@@ -88,7 +88,7 @@ comparators would make the sort unstable at equal prices.
 - The non-strict comparators are load-bearing: "optimizing" `ge`/`le` to
   `gt`/`lt` breaks FIFO fairness without failing the sort itself. The
   time-priority test guards this.
-- Sorting stays private to `strike::orderbook`; no other module observes or
+- Sorting stays private to `nth::orderbook`; no other module observes or
   maintains book order.
 - Revisit (superseding this record) when a side regularly holds hundreds of
   orders, the book must outgrow a single object, or matching must skip price

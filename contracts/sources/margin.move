@@ -1,4 +1,4 @@
-module strike::strike;
+module nth::margin;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};

@@ -1,26 +1,53 @@
 # AGENTS.md — Sui Move Contracts
 
-Standards for the `strike` Move package. This code moves user collateral;
+Standards for the `nth` Move package. This code moves user collateral;
 correctness requirements are absolute. Repo-wide rules (dev shell, GitButler,
 commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Package Layout
 
-Move package `strike`, edition `2024`. The Sui framework dependency is pinned to
-`testnet-v1.75.1` — the same release as the `sui` CLI in `flake.nix` and the
-backend `sui-sdk`. Bump all three together, never one alone.
+Three Move packages under `contracts/`, all edition `2024`. The Sui framework
+dependency is pinned to `testnet-v1.75.1` — the same release as the `sui` CLI in
+`flake.nix` and the backend `sui-sdk`. Bump all three together, never one alone.
 
-| File                     | Module              | Contents                                                       |
-| ------------------------ | ------------------- | -------------------------------------------------------------- |
-| `sources/units.move`     | `strike::units`     | Fixed-point newtypes + `FLOAT_SCALING` (10^6, USDC's decimals) |
-| `sources/risk.move`      | `strike::risk`      | Margin/liquidation/funding formulas; ALL u128 scaling math     |
-| `sources/margin.move`    | `strike::strike`    | `MarginAccount`: USDC deposits/withdrawals, owner checks       |
-| `sources/order.move`     | `strike::order`     | `Side` enum + `match_side!`, `OrderId`, `Order` struct         |
-| `sources/orderbook.move` | `strike::orderbook` | CLOB: matching, cancellation, liquidation sweep, funding       |
-| `sources/pool.move`      | `strike::pool`      | `Pool`: vault + orderbook + oracle, entry points, cadence      |
-| `sources/vault.move`     | `strike::vault`     | Pooled USDC collateral                                         |
-| `sources/oracle.move`    | `strike::oracle`    | Price oracle object                                            |
-| `tests/`                 | `strike::*_tests`   | One `#[test_only]` module per source module                    |
+### `units/` (`units::*`)
+
+Typed fixed-point quantities — one module per type. See `units/README.md` and
+`units/examples/` (compiled locally, not published on chain).
+
+| File                                         | Module                           | Contents                                |
+| -------------------------------------------- | -------------------------------- | --------------------------------------- |
+| `units/sources/scaling.move`                 | `units::scaling`                 | `float_scaling()` ($10^6$)              |
+| `units/sources/price.move`                   | `units::price`                   | `Price` newtype                         |
+| `units/sources/size.move`                    | `units::size`                    | `Size` newtype                          |
+| `units/sources/leverage.move`                | `units::leverage`                | `Leverage` newtype                      |
+| `units/sources/usdc_amount.move`             | `units::usdc_amount`             | `UsdcAmount` newtype                    |
+| `units/sources/maintenance_margin_rate.move` | `units::maintenance_margin_rate` | `MaintenanceMarginRate` (plain percent) |
+| `units/examples/`                            | `units::scaled_order`, etc.      | Usage examples (not published on chain) |
+| `units/tests/`                               | `units::*_tests`                 | Per-module tests + `examples_tests`     |
+
+### `nth` (`nth::*`)
+
+| File                             | Module                   | Contents                                                   |
+| -------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| `sources/risk.move`              | `nth::risk`              | Margin/liquidation/funding formulas; ALL u128 scaling math |
+| `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks   |
+| `sources/order.move`             | `nth::order`             | `Side` enum + `match_side!`, `OrderId`, `Order` struct     |
+| `sources/position.move`          | `nth::position`          | Account-bound generic net exposure                         |
+| `sources/matching.move`          | `nth::matching`          | Generic CLOB + fill and cancellation obligations           |
+| `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions + cursor-checked settlement         |
+| `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, funding   |
+| `sources/pool.move`              | `nth::pool`              | `Pool`: vault + orderbook + oracle, entry points, cadence  |
+| `sources/vault.move`             | `nth::vault`             | Pooled USDC collateral                                     |
+| `sources/oracle.move`            | `nth::oracle`            | Price oracle object                                        |
+| `tests/`                         | `nth::*_tests`           | One `#[test_only]` module per source module                |
+
+### `conformance/` (`instrument_conformance::*`)
+
+External linear and expiring fixture instruments. This package depends on `nth`,
+while `nth` imports neither fixture; its tests prove private witnesses,
+wrapper-owned markets, typed obligations, cancellation, and isolated positions
+across the public package boundary.
 
 ## Module Organization
 
@@ -31,48 +58,51 @@ its operations, and its constants together:
   are banned names and banned concepts — they scale into dumping grounds where
   nothing can be found. This package already dissolved both a `types` and a
   `constants` module.
-- **Constants live with the code that owns their meaning.** `FLOAT_SCALING` is
-  the unit system's, so it lives in `units`; the funding rate cap is applied
-  inside `risk::funding_rate_bps`, so it lives in `risk`; the funding interval
-  and default margin rate parameterize `Pool`, so they live in `pool`. Placement
-  follows the consumer that defines the semantics, not the syntactic category
-  "constant".
+- **Constants live with the code that owns their meaning.** `float_scaling()` is
+  the unit system's, so it lives in `units::scaling`; the funding rate cap is
+  applied inside `risk::funding_rate_bps`, so it lives in `risk`; the funding
+  interval and default margin rate parameterize `Pool`, so they live in `pool`.
+  Placement follows the consumer that defines the semantics, not the syntactic
+  category "constant".
 - **The test for a new item's home:** which module's doc comment would have to
   explain it? That module owns it. If no existing module's domain covers it, the
   item is a new domain — give it a new, domain-named module.
 
-Build and test from `contracts/`, inside the dev shell:
+Build and test inside the dev shell:
 
 ```sh
-sui move build
-sui move test            # must be green ALWAYS — this is what CI runs
-sui move test <filter>   # run matching tests during iteration
+cd contracts/units && sui move test   # units package
+cd contracts && sui move test          # nth package — must be green ALWAYS
+cd contracts/conformance && sui move test # external instrument fixtures
+sui move test <filter>                 # run matching tests during iteration
 ```
 
 ## Type Modeling (non-negotiable)
 
-`strike::units` and `strike::order` exist to make unit-mixing and boolean
-blindness unrepresentable. Domain logic operates on domain types end to end:
+`units::*` and `nth::order` exist to make unit-mixing and boolean blindness
+unrepresentable. Domain logic operates on domain types end to end:
 
-- **`Side` enum (`strike::order`), never `is_bid: bool`.** Construct with
+- **`Side` enum (`nth::order`), never `is_bid: bool`.** Construct with
   `order::bid()` / `order::ask()`. Cross-module dispatch on `Side` goes through
   `side.match_side!(|| ..., || ...)` — both arms required at every call site.
   The `side.is_bid()` projection is reserved for event payload projection; using
   it for domain branching is a violation.
-- **`Price`, `Size`, `Leverage`, `UsdcAmount` (`strike::units`), never bare
-  `u64`.** All four are fixed-point values scaled by `units::float_scaling()`
-  (or USDC base units, which share the 10^6 scale — `units.move` documents the
-  coupling). They are NOT interchangeable: multiplying two scaled values
-  double-scales, and mixing units silently corrupts margin math. A bare `u64`
-  crossing a function boundary for any of these quantities is a bug.
-- **`OrderId` (`strike::order`) is the cancellation key.** Unlike
+- **`Price`, `Size`, `Leverage`, `UsdcAmount`, `MaintenanceMarginRate`
+  (`units::*`), never bare `u64`.** All four scaled quantities use
+  `scaling::float_scaling()` (or USDC base units, which share the $10^6$ scale —
+  `scaling.move` documents the coupling). `MaintenanceMarginRate` is the
+  exception: a plain percent (25 = 25%), not scaled. They are NOT
+  interchangeable: multiplying two scaled values double-scales, and mixing units
+  silently corrupts margin math. A bare `u64` crossing a function boundary for
+  any of these quantities is a bug.
+- **`OrderId` (`nth::order`) is the cancellation key.** Unlike
   `(account, price)` it stays unique when one account rests several orders at
   the same price level. Never key order lookup on anything else.
-- **ALL cross-quantity scaling arithmetic lives in `risk.move` (`strike::risk`)
-  and runs in `u128`.** Double-scaled products overflow `u64` for realistic
-  inputs. No other module multiplies, divides, or rescales these quantities — it
-  calls `margin_required`, `maintenance_margin`, `max_leverage`,
-  `is_liquidated`, `refund_for_unfilled`, or adds a new function HERE.
+- **ALL cross-quantity scaling arithmetic lives in `risk.move` (`nth::risk`) and
+  runs in `u128`.** Double-scaled products overflow `u64` for realistic inputs.
+  No other module multiplies, divides, or rescales these quantities — it calls
+  `margin_required`, `maintenance_margin`, `max_leverage`, `is_liquidated`,
+  `refund_for_unfilled`, or adds a new function HERE.
 - **Events carry primitive fields.** An event's BCS layout is the external
   serialization contract consumed by indexers, so event structs hold `u64` /
   `bool` / `ID` and the domain types are projected at the emit site via
@@ -85,7 +115,7 @@ blindness unrepresentable. Domain logic operates on domain types end to end:
   `order.unfilled_size()`, `margin_account.balance()`,
   `orderbook.bids.push_back(order)` — not `order::unfilled_size(&order)`.
 - **`public use fun` aliases** for every newtype operation, following
-  `units.move` (`public use fun size_sub as Size.sub;`). A newtype without
+  `units::size` (`public use fun size_sub as Size.sub;`). A newtype without
   method aliases is incomplete.
 - **`enum` + `match`** for finite states. `match` is exhaustive — rely on it; no
   boolean flag encodes what an enum variant should.
@@ -98,8 +128,8 @@ blindness unrepresentable. Domain logic operates on domain types end to end:
   macro body must only touch public API.
 - **Doc comments (`///`) on every public and `public(package)` function**,
   stating the units/scaling of every quantity it touches and every condition
-  under which it aborts. `units.move`, `risk.move`, and `orderbook.move` set the
-  bar.
+  under which it aborts. `units::price`, `risk.move`, and `orderbook.move` set
+  the bar.
 
 ## Sui Move Best Practices
 
@@ -114,7 +144,7 @@ Distilled from the Sui docs conventions and The Move Book; each is binding.
   functions, test-only functions.
 - **Keep core functions pure and composable: do not `transfer` inside them.**
   Return the object and let the caller (or a PTB) decide where it goes.
-  Constructors return the object (`strike::new`, `pool::new`); a separate
+  Constructors return the object (`margin::new`, `pool::new`); a separate
   function places it (`keep`). The only sanctioned in-module transfer is for
   types that deliberately lack `store` (see `MarginAccount.keep`).
 - **Prefer `public fun` over `entry fun`.** `public` is callable both from PTBs
@@ -146,9 +176,14 @@ Distilled from the Sui docs conventions and The Move Book; each is binding.
 
 ### Aborts and errors
 
+- **Clever errors (`#[error]`) on every abort constant.** Annotate with
+  `#[error]` and type the constant as `vector<u8>` with a `b"..."` message
+  instead of a bare `u64` code. Tooling decodes the name, message, and source
+  line on abort; tests still reference the constant by name in
+  `#[expected_failure(abort_code = module::EConstant)]`.
 - **One error constant per abort scenario**, `E` + PascalCase
-  (`EInsufficientBalance`), doc-commented, unique code within the module. Codes
-  are module-local; never reuse one constant for two conditions.
+  (`EInsufficientBalance`), unique within the module. Never reuse one constant
+  for two conditions.
 - **Every `assert!` uses a named constant** — no bare numeric abort codes.
 - **Validate at the boundary**: public functions assert ownership
   (`verify_owner`), positive prices/sizes, and leverage bounds BEFORE any state
@@ -197,3 +232,63 @@ they can never be removed or changed, only reimplemented. `public(package)`,
   pass.** If the test disagrees with the code, one of them is wrong — determine
   which against [docs/margin.md](../docs/margin.md) and
   [docs/liquidation.md](../docs/liquidation.md) and fix that one.
+
+## Code Quality Checklist
+
+Binding standards from
+[The Move Book code quality checklist](https://move-book.com/guides/code-quality-checklist).
+Review every change against this list; fix violations in touched code.
+
+### Package manifest
+
+| Item                                           | Status                                        |
+| ---------------------------------------------- | --------------------------------------------- |
+| `edition = "2024"` in every `Move.toml`        | Done                                          |
+| Explicit Sui framework pin (`testnet-v1.75.1`) | Done — must move with `flake.nix` / `sui-sdk` |
+| Prefixed named addresses for generic names     | N/A — `nth` and `units` are project-specific  |
+
+### Imports, modules, and constants
+
+| Item                                                | Status                                       |
+| --------------------------------------------------- | -------------------------------------------- |
+| Module labels (`module pkg::mod;` at file scope)    | Open — legacy braced modules remain          |
+| No `{Self}`-only imports; group `Self` with members | Enforced in new code                         |
+| Error constants: `EPascalCase` with `#[error]`      | Done in production modules                   |
+| Regular constants: `ALL_CAPS`                       | Done (`POOL_VERSION`, `FLOAT_SCALING`, etc.) |
+
+### Structs and events
+
+| Item                                                            | Status |
+| --------------------------------------------------------------- | ------ |
+| Capabilities suffixed with `Cap` (`PriceCap`)                   | Done   |
+| Events named in past tense (`PositionOpened`, `FundingApplied`) | Done   |
+| No `Potato` suffix on hot-potato types                          | N/A    |
+
+### Functions
+
+| Item                                                       | Status                             |
+| ---------------------------------------------------------- | ---------------------------------- |
+| No `public entry` — `public` or `entry` only               | Done                               |
+| Composable PTB functions (return values, caller transfers) | Done (`new` + `keep`)              |
+| Objects first, capabilities second, `Clock`/`ctx` last     | Done in pool admin paths           |
+| Getters named after fields, no `get_` prefix               | Done (`balance`, `owner`, `price`) |
+
+### Function body (Move 2024)
+
+| Item                                                    | Status                                     |
+| ------------------------------------------------------- | ------------------------------------------ |
+| Method syntax (`ctx.sender()`, `order.unfilled_size()`) | Done in production sources                 |
+| Stdlib macros over hand-rolled loops where applicable   | Done (`match_side!`, `insertion_sort_by!`) |
+| `vector[]` / index syntax over `vector::borrow`         | Prefer in new code                         |
+| `..` unpack for ignored fields                          | Prefer in new code                         |
+
+### Testing
+
+| Item                                                          | Status                                  |
+| ------------------------------------------------------------- | --------------------------------------- |
+| `#[test, expected_failure(...)]` on one line                  | Done                                    |
+| No cleanup after `expected_failure` tests                     | Done                                    |
+| No `test_` prefix in `*_tests` modules                        | Open — rename opportunistically         |
+| `assert!` without numeric abort codes in tests                | Open — prefer `assert_eq!` in new tests |
+| `sui::test_utils::destroy` over bespoke `destroy_for_testing` | Prefer in new tests                     |
+| `test_scenario` only when multi-tx / multi-sender needed      | Done                                    |

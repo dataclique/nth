@@ -5,10 +5,10 @@
 /// u64 for realistic inputs. Formula references: docs/margin.md (margin
 /// mechanism), docs/liquidation.md (liquidation thresholds), and
 /// docs/funding.md (funding rate and payments).
-module strike::risk;
+module nth::risk;
 
-use strike::order::{Self, Side};
-use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
+use nth::order::{Self, Side};
+use nth::units::{Self, Price, Size, Leverage, UsdcAmount};
 
 // === Constants ===
 

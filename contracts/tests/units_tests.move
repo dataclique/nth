@@ -1,7 +1,7 @@
 #[test_only]
-module strike::units_tests;
+module nth::units_tests;
 
-use strike::units;
+use nth::units;
 
 const MAX_U64: u64 = 18_446_744_073_709_551_615;
 
@@ -33,12 +33,12 @@ fun price_comparisons_strict_order() {
 
 // === Size arithmetic ===
 
-#[test, expected_failure(arithmetic_error, location = strike::units)]
+#[test, expected_failure(arithmetic_error, location = nth::units)]
 fun size_sub_underflow_aborts() {
   let _ = units::size(1).sub(units::size(2));
 }
 
-#[test, expected_failure(arithmetic_error, location = strike::units)]
+#[test, expected_failure(arithmetic_error, location = nth::units)]
 fun size_add_overflow_aborts() {
   let _ = units::size(MAX_U64).add(units::size(1));
 }

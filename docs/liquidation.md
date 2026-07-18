@@ -145,7 +145,7 @@ immediately. One step of leverage above this is rejected at placement.
 
 ## Implementation Notes
 
-All margin and liquidation formulas live in `strike::risk` (`margin_required`,
+All margin and liquidation formulas live in `nth::risk` (`margin_required`,
 `maintenance_margin`, `max_leverage`, `is_liquidated`). Every intermediate
 product runs in `u128`: double-scaled values like $P \cdot S$ overflow `u64` for
 realistic inputs.

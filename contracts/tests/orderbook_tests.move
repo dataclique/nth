@@ -1,11 +1,11 @@
 #[test_only]
-module strike::orderbook_tests;
+module nth::orderbook_tests;
 
-use strike::order::{Self, Order};
-use strike::orderbook;
-use strike::pool::{Self, Pool, PriceCap};
-use strike::strike::{Self, MarginAccount};
-use strike::units::{Self, Price, Size, Leverage};
+use nth::margin::{Self, MarginAccount};
+use nth::order::{Self, Order};
+use nth::orderbook;
+use nth::pool::{Self, Pool, PriceCap};
+use nth::units::{Self, Price, Size, Leverage};
 use sui::coin::mint_for_testing;
 use sui::test_scenario::{
   begin,
@@ -49,7 +49,7 @@ fun setup(test: &mut Scenario) {
     );
     clock.destroy_for_testing();
     let alice_usdc = mint_for_testing<USDC>(usdc_of(1000), test.ctx());
-    let alice_margin = strike::new_with_deposit(alice_usdc, test.ctx());
+    let alice_margin = margin::new_with_deposit(alice_usdc, test.ctx());
 
     transfer::public_transfer(price_cap, ALICE);
     alice_margin.keep(test.ctx());
@@ -58,7 +58,7 @@ fun setup(test: &mut Scenario) {
   next_tx(test, BOB);
   {
     let bob_usdc = mint_for_testing<USDC>(usdc_of(1000), test.ctx());
-    let bob_margin = strike::new_with_deposit(bob_usdc, test.ctx());
+    let bob_margin = margin::new_with_deposit(bob_usdc, test.ctx());
     bob_margin.keep(test.ctx());
   };
 }
@@ -1313,7 +1313,7 @@ fun test_large_notional_does_not_overflow() {
       usdc_of(100_000_000),
       test.ctx(),
     );
-    let carol_margin = strike::new_with_deposit(carol_usdc, test.ctx());
+    let carol_margin = margin::new_with_deposit(carol_usdc, test.ctx());
     carol_margin.keep(test.ctx());
   };
 

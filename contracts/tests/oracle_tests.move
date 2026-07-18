@@ -1,8 +1,8 @@
 #[test_only]
-module strike::oracle_tests;
+module nth::oracle_tests;
 
-use strike::oracle;
-use strike::units::{Self, Price};
+use nth::oracle;
+use nth::units::{Self, Price};
 use sui::test_scenario::{begin, end};
 use std::unit_test::destroy;
 

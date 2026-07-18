@@ -1,8 +1,8 @@
 #[test_only]
-module strike::margin_tests;
+module nth::margin_tests;
 
-use strike::strike::{Self, MarginAccount};
-use strike::units;
+use nth::margin::{Self, MarginAccount};
+use nth::units;
 use sui::coin::mint_for_testing;
 use sui::test_scenario::{begin, end, take_from_address, return_to_address};
 use usdc::usdc::USDC;
@@ -21,7 +21,7 @@ fun test_margin_account_creation() {
   let alice = @0xA;
   test.next_tx(alice);
   {
-    let mut margin_account = strike::new(test.ctx());
+    let mut margin_account = margin::new(test.ctx());
     assert!(margin_account.owner() == alice, 0);
     margin_account.deposit(
       mint_for_testing<USDC>(100*units::float_scaling(), test.ctx()),
@@ -50,7 +50,7 @@ fun test_withdraw_ok() {
   let alice = @0xA;
   test.next_tx(alice);
   {
-    let mut margin_account = strike::new(test.ctx());
+    let mut margin_account = margin::new(test.ctx());
     margin_account.deposit(
       mint_for_testing<USDC>(100*units::float_scaling(), test.ctx()),
       test.ctx(),
@@ -73,11 +73,11 @@ fun test_withdraw_ok() {
   end(test);
 }
 
-#[test, expected_failure(abort_code = strike::ENotOwner)]
+#[test, expected_failure(abort_code = margin::ENotOwner)]
 fun test_deposit_by_non_owner_aborts() {
   let mut test = begin(ALICE);
   {
-    let margin_account = strike::new(test.ctx());
+    let margin_account = margin::new(test.ctx());
     margin_account.keep(test.ctx());
   };
 
@@ -96,11 +96,11 @@ fun test_deposit_by_non_owner_aborts() {
   end(test);
 }
 
-#[test, expected_failure(abort_code = strike::ENotOwner)]
+#[test, expected_failure(abort_code = margin::ENotOwner)]
 fun test_withdraw_by_non_owner_aborts() {
   let mut test = begin(ALICE);
   {
-    let margin_account = strike::new_with_deposit(
+    let margin_account = margin::new_with_deposit(
       mint_for_testing<USDC>(scaled(100), test.ctx()),
       test.ctx(),
     );
@@ -118,11 +118,11 @@ fun test_withdraw_by_non_owner_aborts() {
   end(test);
 }
 
-#[test, expected_failure(abort_code = strike::EInsufficientBalance)]
+#[test, expected_failure(abort_code = margin::EInsufficientBalance)]
 fun test_withdraw_more_than_balance_aborts() {
   let mut test = begin(ALICE);
   {
-    let mut margin_account = strike::new_with_deposit(
+    let mut margin_account = margin::new_with_deposit(
       mint_for_testing<USDC>(scaled(100), test.ctx()),
       test.ctx(),
     );
@@ -138,7 +138,7 @@ fun test_withdraw_more_than_balance_aborts() {
 fun test_withdraw_full_balance() {
   let mut test = begin(ALICE);
   {
-    let mut margin_account = strike::new_with_deposit(
+    let mut margin_account = margin::new_with_deposit(
       mint_for_testing<USDC>(scaled(100), test.ctx()),
       test.ctx(),
     );

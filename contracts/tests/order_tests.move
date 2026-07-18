@@ -1,8 +1,8 @@
 #[test_only]
-module strike::order_tests;
+module nth::order_tests;
 
-use strike::order::{Self, Order};
-use strike::units::{Self, Price, Size};
+use nth::order::{Self, Order};
+use nth::units::{Self, Price, Size};
 
 fun px(value: u64): Price { units::price(value*units::float_scaling()) }
 
@@ -69,7 +69,7 @@ fun test_unfilled_size_zero_when_fully_filled() {
 /// `set_filled_size` does not validate against `size`; `Order` trusts its
 /// callers on the `filled_size <= size` invariant, so a violation only
 /// surfaces as an arithmetic underflow when `unfilled_size` is read.
-#[test, expected_failure(arithmetic_error, location = strike::units)]
+#[test, expected_failure(arithmetic_error, location = nth::units)]
 fun test_set_filled_beyond_size_underflows_on_read() {
   let ctx = tx_context::dummy();
   let mut order = new_order(sz(10), &ctx);

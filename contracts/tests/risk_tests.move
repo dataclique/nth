@@ -1,9 +1,9 @@
 #[test_only]
-module strike::risk_tests;
+module nth::risk_tests;
 
-use strike::order;
-use strike::risk;
-use strike::units::{Self, Price, Size, Leverage, UsdcAmount};
+use nth::order;
+use nth::risk;
+use nth::units::{Self, Price, Size, Leverage, UsdcAmount};
 
 /// Maintenance margin rate used across the boundary tests (25%), matching
 /// `pool::default_maintenance_margin_rate()`.

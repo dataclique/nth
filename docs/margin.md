@@ -1,10 +1,10 @@
 # Margin Mechanism
 
-Strike is a leveraged perpetuals-style CLOB: every resting order is a
-margin-backed position. Collateral is USDC held in a per-user `MarginAccount`;
-when a trader opens a position, initial margin moves from that account into the
-pool `Vault` and stays there until the position is reduced (cancel), liquidated,
-or closed.
+Nth Market currently implements a leveraged perpetuals-style CLOB: every resting
+order is a margin-backed position. Collateral is USDC held in a per-user
+`MarginAccount`; when a trader opens a position, initial margin moves from that
+account into the pool `Vault` and stays there until the position is reduced
+(cancel), liquidated, or closed.
 
 Formulas follow
 [ByBit's USDT-contract liquidation math](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract);
@@ -30,18 +30,18 @@ units at the same scale (1 USDC = $10^6$ base units).
 
 ## MarginAccount
 
-Each trader owns a `MarginAccount` object (`strike::strike`):
+Each trader owns a `MarginAccount` object (`nth::margin`):
 
-1. **Create** — `strike::new` or `strike::new_with_deposit`.
-2. **Fund** — `strike::deposit` moves USDC from the sender's wallet into the
+1. **Create** — `margin::new` or `margin::new_with_deposit`.
+2. **Fund** — `margin::deposit` moves USDC from the sender's wallet into the
    account balance.
 3. **Trade** — `pool::place_leveraged_order` debits initial margin from the
    account into the pool vault (see [Collateral flow](#collateral-flow)).
-4. **Withdraw** — `strike::withdraw` returns free USDC to the wallet. Only
+4. **Withdraw** — `margin::withdraw` returns free USDC to the wallet. Only
    collateral not locked in open positions is available.
 
 The struct deliberately lacks the `store` ability, so it cannot be wrapped or
-transferred by third-party code — only `strike::keep` can place it at the
+transferred by third-party code — only `margin::keep` can place it at the
 owner's address. Every mutating call checks `verify_owner` against the
 transaction sender.
 
@@ -221,15 +221,15 @@ The 50 USDC that backed the filled token stays in the vault.
 
 ## Implementation Map
 
-| Concern                                                            | Module / function                  |
-| ------------------------------------------------------------------ | ---------------------------------- |
-| Account custody                                                    | `strike::strike` (`MarginAccount`) |
-| $M_i$, $M_{\mathrm{maint}}$, $L_{\max}$, liquidation check, refund | `strike::risk`                     |
-| Place / close / liquidation sweep                                  | `strike::pool`                     |
-| Matching, cancel, book sweep                                       | `strike::orderbook`                |
-| Vault balance                                                      | `strike::vault`                    |
-| Typed quantities, $s = 10^6$                                       | `strike::units`                    |
-| Default $r_m$, funding cadence                                     | `strike::pool`                     |
+| Concern                                                            | Module / function               |
+| ------------------------------------------------------------------ | ------------------------------- |
+| Account custody                                                    | `nth::margin` (`MarginAccount`) |
+| $M_i$, $M_{\mathrm{maint}}$, $L_{\max}$, liquidation check, refund | `nth::risk`                     |
+| Place / close / liquidation sweep                                  | `nth::pool`                     |
+| Matching, cancel, book sweep                                       | `nth::orderbook`                |
+| Vault balance                                                      | `nth::vault`                    |
+| Typed quantities, $s = 10^6$                                       | `units::*`                      |
+| Default $r_m$, funding cadence                                     | `nth::pool`                     |
 
 All cross-quantity arithmetic runs in `u128` inside `risk.move`; no other module
 multiplies prices, sizes, or leverage.
