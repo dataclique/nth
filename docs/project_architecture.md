@@ -53,6 +53,14 @@ collateral. `complete` aborts unless every fill advanced. Fill batches are
 capped at 32 and each book side at 1,024 resting orders; these are explicit
 protocol bounds, not assumptions about transaction gas.
 
+Positive-claim instruments use the same silo through
+`instrument_market::issue_long_claim` and `redeem_long_claim`. The instrument
+supplies the claim size and collateral amounts; the standard verifies account
+ownership, rejects short exposure, moves free ↔ position collateral without
+minting or destroying USDC, and emits `ClaimIssued` / `ClaimRedeemed` events.
+Issuance requires a positive collateral amount; redemption may release zero
+collateral when the instrument reports no realizable assets.
+
 `contracts/conformance` contains independent linear and expiring wrappers that
 compile against the public kernel boundary. The full design, lifecycle scope,
 and remaining directed-cash-flow conformance work are specified in

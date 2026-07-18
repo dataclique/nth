@@ -21,6 +21,10 @@ const EInsufficientReservedCollateral: vector<u8> =
   b"order reservation has insufficient collateral";
 
 #[error]
+const EInsufficientPositionCollateral: vector<u8> =
+  b"claim redemption exceeds the account's position collateral";
+
+#[error]
 const EReservationNotFound: vector<u8> =
   b"order collateral reservation does not exist";
 
@@ -281,6 +285,54 @@ public(package) fun release<Instrument>(
     amount: amount.value(),
   });
   amount
+}
+
+/// Validate moving free collateral into position collateral without mutation.
+public(package) fun validate_free<Instrument>(
+  silo: &Silo<Instrument>,
+  margin_account_id: ID,
+  amount: UsdcAmount,
+) {
+  assert!(silo.free(margin_account_id).ge(amount), EInsufficientFreeCollateral);
+}
+
+/// Move collateral from an account's free bucket into its position bucket.
+public(package) fun move_free_to_position<Instrument>(
+  silo: &mut Silo<Instrument>,
+  margin_account_id: ID,
+  amount: UsdcAmount,
+) {
+  silo.validate_free(margin_account_id, amount);
+  let collateral = silo.accounts[margin_account_id].free.split(amount.value());
+  silo.accounts[margin_account_id].position.join(collateral);
+}
+
+/// Validate releasing position collateral without mutation.
+public(package) fun validate_position<Instrument>(
+  silo: &Silo<Instrument>,
+  margin_account_id: ID,
+  amount: UsdcAmount,
+) {
+  assert!(
+    silo.position(margin_account_id).ge(amount),
+    EInsufficientPositionCollateral,
+  );
+}
+
+/// Move collateral from an account's position bucket back into its free bucket.
+/// A zero payout is valid when an instrument's realizable assets are exhausted.
+public(package) fun move_position_to_free<Instrument>(
+  silo: &mut Silo<Instrument>,
+  margin_account_id: ID,
+  amount: UsdcAmount,
+) {
+  silo.validate_position(margin_account_id, amount);
+  if (amount.value() > 0) {
+    let collateral = silo.accounts[margin_account_id]
+      .position
+      .split(amount.value());
+    silo.accounts[margin_account_id].free.join(collateral);
+  };
 }
 
 public(package) fun free<Instrument>(

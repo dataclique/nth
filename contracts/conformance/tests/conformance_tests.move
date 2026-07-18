@@ -1,6 +1,7 @@
 #[test_only]
 module instrument_conformance::conformance_tests;
 
+use instrument_conformance::claim;
 use instrument_conformance::expiring;
 use instrument_conformance::linear;
 use nth::margin;
@@ -159,5 +160,39 @@ fun independent_external_instruments_share_the_same_kernel() {
   margin::keep(taker, test.ctx());
   linear::share(linear_market);
   expiring::share(expiring_market);
+  test.end();
+}
+
+#[test]
+fun external_claim_instrument_issues_and_redeems_through_the_kernel() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  let mut market = claim::new(test.ctx());
+  claim::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+
+  claim::issue(&mut market, &account, usdc_amount::usdc(6), test.ctx());
+  assert_eq!(claim::position_state(&market, account_id), position::long());
+  assert_eq!(claim::position_size(&market, account_id).value(), 6);
+  assert_eq!(claim::free_collateral(&market, account_id).value(), 4);
+  assert_eq!(claim::position_collateral(&market, account_id).value(), 6);
+
+  claim::redeem(&mut market, &account, usdc_amount::usdc(2), test.ctx());
+  assert_eq!(claim::position_state(&market, account_id), position::long());
+  assert_eq!(claim::position_size(&market, account_id).value(), 4);
+  assert_eq!(claim::free_collateral(&market, account_id).value(), 6);
+  assert_eq!(claim::position_collateral(&market, account_id).value(), 4);
+  assert_eq!(claim::total_collateral(&market).value(), 10);
+
+  margin::keep(account, test.ctx());
+  claim::share(market);
   test.end();
 }

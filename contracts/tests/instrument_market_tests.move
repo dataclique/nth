@@ -1100,3 +1100,299 @@ fun one_market_cannot_withdraw_another_markets_collateral() {
   transfer::public_share_object(empty_market);
   test.end();
 }
+
+#[test]
+fun issuance_moves_free_collateral_into_a_long_claim() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(6),
+    size::size(3),
+    &witness,
+    test.ctx(),
+  );
+
+  assert_eq!(instrument_market::position_state(&market, account_id), position::long());
+  assert_eq!(instrument_market::position_size(&market, account_id).value(), 3);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 4);
+  assert_eq!(instrument_market::position_collateral(&market, account_id).value(), 6);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 10);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun redemption_reduces_claim_and_releases_exact_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(10),
+    size::size(5),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::redeem_long_claim(
+    &mut market,
+    &account,
+    size::size(2),
+    usdc_amount::usdc(4),
+    &witness,
+    test.ctx(),
+  );
+
+  assert_eq!(instrument_market::position_state(&market, account_id), position::long());
+  assert_eq!(instrument_market::position_size(&market, account_id).value(), 3);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 4);
+  assert_eq!(instrument_market::position_collateral(&market, account_id).value(), 6);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 10);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientFreeCollateral)]
+fun issuance_cannot_consume_unavailable_free_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(1),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::EInsufficientLongClaim)]
+fun redemption_cannot_exceed_long_claim_size() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(2, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(2),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(2),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::redeem_long_claim(
+    &mut market,
+    &account,
+    size::size(2),
+    usdc_amount::usdc(2),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientPositionCollateral)]
+fun redemption_cannot_release_unavailable_position_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(2, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(2),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(2),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::redeem_long_claim(
+    &mut market,
+    &account,
+    size::size(1),
+    usdc_amount::usdc(3),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::EInvalidAccountOwner)]
+fun foreign_sender_cannot_issue_an_accounts_claim() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+
+  test.next_tx(@0xB0B);
+  let mut market = test.take_shared<Market<Linear>>();
+  let account = test.take_from_address<MarginAccount>(ALICE);
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(1),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  test_scenario::return_shared(market);
+  margin::keep(account, test.ctx());
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::ENotLongClaim)]
+fun one_market_cannot_redeem_another_markets_claim() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut funded_market = instrument_market::new(&witness, test.ctx());
+  let mut empty_market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(1, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut funded_market,
+    &mut account,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut funded_market,
+    &account,
+    usdc_amount::usdc(1),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::redeem_long_claim(
+    &mut empty_market,
+    &account,
+    size::size(1),
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(funded_market);
+  transfer::public_share_object(empty_market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::EZeroIssuanceCollateral)]
+fun zero_collateral_claim_issuance_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(0),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::EZeroClaimSize)]
+fun zero_claim_issuance_size_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(1),
+    size::size(0),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::EZeroClaimSize)]
+fun zero_claim_redemption_size_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  instrument_market::redeem_long_claim(
+    &mut market,
+    &account,
+    size::size(0),
+    usdc_amount::usdc(0),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}

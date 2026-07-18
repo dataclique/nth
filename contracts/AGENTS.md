@@ -45,10 +45,10 @@ Typed fixed-point quantities — one module per type. See `units/README.md` and
 
 ### `conformance/` (`instrument_conformance::*`)
 
-External linear and expiring fixture instruments. This package depends on `nth`,
-while `nth` imports neither fixture; its tests prove private witnesses,
-wrapper-owned markets, typed obligations, cancellation, and isolated positions
-across the public package boundary.
+External linear, expiring, and claim fixture instruments. This package depends
+on `nth`, while `nth` imports neither fixture; its tests prove private
+witnesses, wrapper-owned markets, typed obligations, cancellation, isolated
+positions, and claim issuance/redemption across the public package boundary.
 
 ## Module Organization
 

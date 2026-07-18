@@ -40,6 +40,10 @@ const EWrongMarket: vector<u8> =
 #[error]
 const EWrongVersion: vector<u8> = b"market version is not supported";
 
+#[error]
+const EZeroIssuanceCollateral: vector<u8> =
+  b"claim issuance collateral must be positive";
+
 // === Structs ===
 
 /// Generic matching and net-position state for one isolated instrument market.
@@ -61,6 +65,24 @@ public struct MarketCreated<phantom Instrument> has copy, drop {
   schema_version: u16,
   market_id: ID,
   version: u64,
+}
+
+/// Emitted when free collateral is locked behind a newly issued long claim.
+public struct ClaimIssued<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+  margin_account_id: ID,
+  issued_size: u64,
+  collateral_amount: u64,
+}
+
+/// Emitted when a long claim is reduced and position collateral is released.
+public struct ClaimRedeemed<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+  margin_account_id: ID,
+  redeemed_size: u64,
+  collateral_amount: u64,
 }
 
 // === Public Functions ===
@@ -137,6 +159,105 @@ public fun withdraw_collateral<Instrument>(
     amount,
   );
   margin_account.deposit(coin::from_balance(balance, ctx), ctx);
+}
+
+/// Issue a positive long claim by moving `collateral_amount` from the owner's
+/// free market collateral into position collateral. The instrument supplies both
+/// the collateral amount and the claim size; the standard enforces ownership,
+/// positivity, flat-or-long exposure, collateral availability, and conservation.
+public fun issue_long_claim<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account: &MarginAccount,
+  collateral_amount: UsdcAmount,
+  issued_size: Size,
+  _witness: &Instrument,
+  ctx: &TxContext,
+) {
+  market.assert_version();
+  assert!(
+    margin::verify_owner(margin_account, ctx.sender()),
+    EInvalidAccountOwner,
+  );
+  assert!(collateral_amount.value() > 0, EZeroIssuanceCollateral);
+  position::assert_claim_size_positive(issued_size);
+  let margin_account_id = object::id(margin_account);
+  market.ensure_position(margin_account_id);
+  let market_id = object::id(market);
+  position::validate_issue_long_claim(
+    &market.positions[margin_account_id],
+    issued_size,
+  );
+  collateral::validate_free(
+    &market.collateral,
+    margin_account_id,
+    collateral_amount,
+  );
+  collateral::move_free_to_position(
+    &mut market.collateral,
+    margin_account_id,
+    collateral_amount,
+  );
+  position::issue_long_claim(
+    &mut market.positions[margin_account_id],
+    issued_size,
+  );
+  event::emit(ClaimIssued<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    margin_account_id,
+    issued_size: issued_size.value(),
+    collateral_amount: collateral_amount.value(),
+  });
+}
+
+/// Redeem part or all of an owner's positive long claim and release the
+/// instrument-calculated `collateral_amount` back to free market collateral.
+/// Zero collateral is allowed when the instrument reports no realizable assets;
+/// oversize claims and oversize collateral releases abort.
+public fun redeem_long_claim<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account: &MarginAccount,
+  redemption_size: Size,
+  collateral_amount: UsdcAmount,
+  _witness: &Instrument,
+  ctx: &TxContext,
+) {
+  market.assert_version();
+  assert!(
+    margin::verify_owner(margin_account, ctx.sender()),
+    EInvalidAccountOwner,
+  );
+  position::assert_claim_size_positive(redemption_size);
+  let margin_account_id = object::id(margin_account);
+  position::assert_long_claim_materialized(
+    market.positions.contains(margin_account_id),
+  );
+  let market_id = object::id(market);
+  position::validate_redeem_long_claim(
+    &market.positions[margin_account_id],
+    redemption_size,
+  );
+  collateral::validate_position(
+    &market.collateral,
+    margin_account_id,
+    collateral_amount,
+  );
+  position::redeem_long_claim(
+    &mut market.positions[margin_account_id],
+    redemption_size,
+  );
+  collateral::move_position_to_free(
+    &mut market.collateral,
+    margin_account_id,
+    collateral_amount,
+  );
+  event::emit(ClaimRedeemed<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    margin_account_id,
+    redeemed_size: redemption_size.value(),
+    collateral_amount: collateral_amount.value(),
+  });
 }
 
 /// Match a positive limit order after verifying that the sender owns

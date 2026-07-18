@@ -16,6 +16,17 @@ const EVENT_SCHEMA_VERSION: u16 = 1;
 #[error]
 const EZeroTradeSize: vector<u8> = b"trade size must be positive";
 
+#[error]
+const ENotLongClaim: vector<u8> =
+  b"issuance and redemption require a flat or long claim position";
+
+#[error]
+const EInsufficientLongClaim: vector<u8> =
+  b"redemption exceeds the account's long claim";
+
+#[error]
+const EZeroClaimSize: vector<u8> = b"claim size must be positive";
+
 // === Structs ===
 
 /// The only representable net exposure states for one account in one market.
@@ -125,6 +136,80 @@ public(package) fun apply_trade<Instrument>(
     current_state: position.state(),
     current_size: position.size().value(),
   });
+}
+
+/// Validate issuance of a positive claim without mutating exposure.
+public(package) fun validate_issue_long_claim<Instrument>(
+  position: &Position<Instrument>,
+  claim_size: Size,
+) {
+  assert!(!claim_size.is_zero(), EZeroClaimSize);
+  match (&position.exposure) {
+    Exposure::Flat => (),
+    Exposure::Long { size } => {
+      let _ = (*size).add(claim_size);
+    },
+    Exposure::Short { size: _ } => abort ENotLongClaim,
+  };
+}
+
+/// Increase a flat or long positive claim after validation.
+public(package) fun issue_long_claim<Instrument>(
+  position: &mut Position<Instrument>,
+  claim_size: Size,
+) {
+  position.validate_issue_long_claim(claim_size);
+  position.exposure = match (position.exposure) {
+    Exposure::Flat => Exposure::Long { size: claim_size },
+    Exposure::Long { size } => Exposure::Long {
+      size: size.add(claim_size),
+    },
+    Exposure::Short { size: _ } => abort ENotLongClaim,
+  };
+}
+
+/// Validate reduction of an existing long claim without mutating exposure.
+public(package) fun validate_redeem_long_claim<Instrument>(
+  position: &Position<Instrument>,
+  claim_size: Size,
+) {
+  assert!(!claim_size.is_zero(), EZeroClaimSize);
+  match (&position.exposure) {
+    Exposure::Long { size } => {
+      assert!(!(*size).lt(claim_size), EInsufficientLongClaim);
+    },
+    Exposure::Flat | Exposure::Short { size: _ } => abort ENotLongClaim,
+  };
+}
+
+/// Reduce an existing long claim after validation, becoming flat at zero.
+public(package) fun redeem_long_claim<Instrument>(
+  position: &mut Position<Instrument>,
+  claim_size: Size,
+) {
+  position.validate_redeem_long_claim(claim_size);
+  position.exposure = match (position.exposure) {
+    Exposure::Long { size } => {
+      if (size.eq(claim_size)) {
+        Exposure::Flat
+      } else {
+        Exposure::Long {
+          size: size.sub(claim_size),
+        }
+      }
+    },
+    Exposure::Flat | Exposure::Short { size: _ } => abort ENotLongClaim,
+  };
+}
+
+/// Preserve a named position-module abort when a market has no materialized
+/// positive claim for an account.
+public(package) fun assert_long_claim_materialized(materialized: bool) {
+  assert!(materialized, ENotLongClaim);
+}
+
+public(package) fun assert_claim_size_positive(claim_size: Size) {
+  assert!(!claim_size.is_zero(), EZeroClaimSize);
 }
 
 // === Private Functions ===

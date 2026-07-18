@@ -190,6 +190,13 @@ exposure back into assets. This supports fund shares, index products, strategy
 vaults, and other positive claims without forcing their positions to become
 freely transferable coins.
 
+The kernel exposes these as `instrument_market::issue_long_claim` and
+`redeem_long_claim`. The instrument supplies claim size and collateral amounts
+while holding its private witness; the standard verifies ownership, requires a
+flat or long claim, moves free ↔ position collateral without minting USDC, and
+emits primitive events. NAV-to-share math, minimum-output bounds, and
+first-depositor defenses remain instrument responsibilities.
+
 The transition includes caller-provided minimum-output or maximum-input bounds.
 Implementations that calculate shares from NAV must define rounding and defend
 the empty-vault and first-depositor cases. Direct asset donations cannot
