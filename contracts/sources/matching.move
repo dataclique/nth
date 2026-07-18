@@ -371,8 +371,8 @@ public(package) fun cancel_order<Instrument>(
   order_id: OrderId,
 ): CancelObligation<Instrument> {
   let orders = side.match_side!(
-    || &mut orderbook.bids,
-    || &mut orderbook.asks,
+    || &orderbook.bids,
+    || &orderbook.asks,
   );
   let mut index = 0;
   while (index < orders.length()) {
@@ -386,24 +386,23 @@ public(package) fun cancel_order<Instrument>(
     index = index + 1;
   };
   assert!(index < orders.length(), EOrderNotFound);
-  let canceled = orders.remove(index);
-  let remaining_size = canceled.unfilled_size();
+  remove_resting_at(orderbook, market_id, side, index)
+}
 
-  event::emit(OrderCanceled<Instrument> {
-    schema_version: EVENT_SCHEMA_VERSION,
-    market_id,
-    order_id: canceled.order_id.value(),
-    margin_account_id,
-    reservation_id: canceled.reservation_id.value(),
-    is_bid: canceled.side.is_bid(),
-    remaining_size: remaining_size.value(),
-  });
-  CancelObligation {
-    market_id,
-    order_id,
-    reservation_id: canceled.reservation_id,
-    remaining_size,
-  }
+/// Remove the front resting order from `side` regardless of its owner.
+/// Aborts when the side is empty. Reserved for market-wide cleanup paths whose
+/// released collateral can only return to each order's own account.
+public(package) fun cancel_front<Instrument>(
+  orderbook: &mut OrderBook<Instrument>,
+  market_id: ID,
+  side: Side,
+): CancelObligation<Instrument> {
+  let orders = side.match_side!(
+    || &orderbook.bids,
+    || &orderbook.asks,
+  );
+  assert!(orders.length() > 0, EOrderNotFound);
+  remove_resting_at(orderbook, market_id, side, 0)
 }
 
 /// Advance an obligation after both generic position transitions succeed.
@@ -456,6 +455,36 @@ public(package) fun ask_count<Instrument>(
 }
 
 // === Private Functions ===
+
+fun remove_resting_at<Instrument>(
+  orderbook: &mut OrderBook<Instrument>,
+  market_id: ID,
+  side: Side,
+  index: u64,
+): CancelObligation<Instrument> {
+  let orders = side.match_side!(
+    || &mut orderbook.bids,
+    || &mut orderbook.asks,
+  );
+  let canceled = orders.remove(index);
+  let remaining_size = canceled.unfilled_size();
+
+  event::emit(OrderCanceled<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    order_id: canceled.order_id.value(),
+    margin_account_id: canceled.margin_account_id,
+    reservation_id: canceled.reservation_id.value(),
+    is_bid: canceled.side.is_bid(),
+    remaining_size: remaining_size.value(),
+  });
+  CancelObligation {
+    market_id,
+    order_id: canceled.order_id,
+    reservation_id: canceled.reservation_id,
+    remaining_size,
+  }
+}
 
 fun preflight<Instrument>(
   orderbook: &OrderBook<Instrument>,

@@ -272,3 +272,204 @@ fun external_claim_instrument_issues_and_redeems_through_the_kernel() {
   claim::share(market);
   test.end();
 }
+
+fun expired_position_pair(
+  test: &mut test_scenario::Scenario,
+): (
+  expiring::ExpiringMarket,
+  nth::margin::MarginAccount,
+  nth::margin::MarginAccount,
+) {
+  let mut short_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut long_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut market = expiring::new(test.ctx());
+  expiring::deposit_collateral(
+    &mut market,
+    &mut short_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  expiring::deposit_collateral(
+    &mut market,
+    &mut long_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+
+  let ask = expiring::place_limit_order(
+    &mut market,
+    &short_account,
+    usdc_amount::usdc(8),
+    order::ask(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  expiring::complete(&market, ask);
+  let mut bid = expiring::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(2),
+    order::bid(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  expiring::settle_next(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(8),
+    usdc_amount::usdc(2),
+  );
+  expiring::complete(&market, bid);
+  (market, long_account, short_account)
+}
+
+#[test]
+fun option_expiry_settles_long_and_short_once() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    expired_position_pair(&mut test);
+  let long_id = object::id(&long_account);
+  let short_id = object::id(&short_account);
+
+  expiring::terminate(&mut market, price::price(103));
+  assert_eq!(expiring::is_terminal(&market), true);
+  assert_eq!(expiring::expiry_value(&market).value(), 103);
+  expiring::settle_pair(&mut market, long_id, short_id, usdc_amount::usdc(3));
+
+  assert_eq!(expiring::has_position(&market, long_id), false);
+  assert_eq!(expiring::has_position(&market, short_id), false);
+  assert_eq!(expiring::free_collateral(&market, long_id).value(), 13);
+  assert_eq!(expiring::free_collateral(&market, short_id).value(), 7);
+  assert_eq!(expiring::position_collateral(&market, long_id).value(), 0);
+  assert_eq!(expiring::position_collateral(&market, short_id).value(), 0);
+  assert_eq!(expiring::total_collateral(&market).value(), 20);
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  expiring::share(market);
+  test.end();
+}
+
+#[test]
+fun worthless_expiry_settles_without_a_payout() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    expired_position_pair(&mut test);
+  let long_id = object::id(&long_account);
+  let short_id = object::id(&short_account);
+
+  expiring::terminate(&mut market, price::price(100));
+  expiring::settle_pair(&mut market, long_id, short_id, usdc_amount::usdc(0));
+
+  assert_eq!(expiring::has_position(&market, long_id), false);
+  assert_eq!(expiring::has_position(&market, short_id), false);
+  assert_eq!(expiring::free_collateral(&market, long_id).value(), 10);
+  assert_eq!(expiring::free_collateral(&market, short_id).value(), 10);
+  assert_eq!(expiring::total_collateral(&market).value(), 20);
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  expiring::share(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = expiring::EExpiryAlreadyBound)]
+fun expiry_value_is_bound_once() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut market = expiring::new(test.ctx());
+  expiring::terminate(&mut market, price::price(103));
+  expiring::terminate(&mut market, price::price(200));
+  expiring::share(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::instrument_market::ENothingToSettle)]
+fun expiry_settlement_cannot_apply_twice() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    expired_position_pair(&mut test);
+  let long_id = object::id(&long_account);
+  let short_id = object::id(&short_account);
+
+  expiring::terminate(&mut market, price::price(103));
+  expiring::settle_pair(&mut market, long_id, short_id, usdc_amount::usdc(3));
+  expiring::settle_pair(&mut market, long_id, short_id, usdc_amount::usdc(0));
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  expiring::share(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::instrument_market::ETerminalMarket)]
+fun settled_market_rejects_new_orders() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    expired_position_pair(&mut test);
+
+  expiring::terminate(&mut market, price::price(103));
+  let obligation = expiring::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(1),
+    order::bid(),
+    price::price(100),
+    size::size(1),
+    test.ctx(),
+  );
+  expiring::complete(&market, obligation);
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  expiring::share(market);
+  test.end();
+}
+
+#[test]
+fun terminal_cleanup_releases_all_reservations() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut resting_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(9, test.ctx()),
+    test.ctx(),
+  );
+  let resting_id = object::id(&resting_account);
+  let mut market = expiring::new(test.ctx());
+  expiring::deposit_collateral(
+    &mut market,
+    &mut resting_account,
+    usdc_amount::usdc(9),
+    test.ctx(),
+  );
+  let bid = expiring::place_limit_order(
+    &mut market,
+    &resting_account,
+    usdc_amount::usdc(9),
+    order::bid(),
+    price::price(90),
+    size::size(1),
+    test.ctx(),
+  );
+  expiring::complete(&market, bid);
+  assert_eq!(expiring::free_collateral(&market, resting_id).value(), 0);
+
+  expiring::terminate(&mut market, price::price(103));
+  assert_eq!(
+    expiring::cancel_terminal_orders(&mut market, order::bid(), 10),
+    1,
+  );
+  assert_eq!(expiring::bid_count(&market), 0);
+  assert_eq!(expiring::free_collateral(&market, resting_id).value(), 9);
+  assert_eq!(expiring::total_collateral(&market).value(), 9);
+
+  margin::keep(resting_account, test.ctx());
+  expiring::share(market);
+  test.end();
+}

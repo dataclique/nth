@@ -1682,3 +1682,429 @@ fun one_market_cannot_carry_another_markets_collateral() {
   transfer::public_share_object(empty);
   test.end();
 }
+
+#[test, expected_failure(abort_code = instrument_market::EAlreadyTerminal)]
+fun terminal_entry_is_one_time() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  instrument_market::enter_terminal(&mut market, &witness);
+  instrument_market::enter_terminal(&mut market, &witness);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::ETerminalMarket)]
+fun terminal_market_rejects_new_orders() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  instrument_market::enter_terminal(&mut market, &witness);
+  let obligation = instrument_market::place_limit_order(
+    &mut market,
+    &account,
+    object::id(&account),
+    &witness,
+    order::bid(),
+    price::price(100),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, obligation, &witness);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::ETerminalMarket)]
+fun terminal_market_rejects_new_claims() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(4, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(4),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::enter_terminal(&mut market, &witness);
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(4),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::ENotTerminal)]
+fun terminal_settlement_requires_terminal_market() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(4, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(4),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(4),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::settle_terminal_position(&mut market, account_id, &witness);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun terminal_settlement_closes_positions_and_releases_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut payer = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut receiver = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let payer_id = object::id(&payer);
+  let receiver_id = object::id(&receiver);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut payer,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut receiver,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &payer,
+    usdc_amount::usdc(8),
+    size::size(4),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &receiver,
+    usdc_amount::usdc(4),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::enter_terminal(&mut market, &witness);
+  assert_eq!(instrument_market::is_terminal(&market), true);
+  instrument_market::apply_carry(
+    &mut market,
+    payer_id,
+    receiver_id,
+    usdc_amount::usdc(3),
+    1,
+    true,
+    true,
+    &witness,
+  );
+  instrument_market::settle_terminal_position(&mut market, payer_id, &witness);
+  instrument_market::settle_terminal_position(
+    &mut market,
+    receiver_id,
+    &witness,
+  );
+
+  assert_eq!(instrument_market::has_position(&market, payer_id), false);
+  assert_eq!(instrument_market::has_position(&market, receiver_id), false);
+  assert_eq!(instrument_market::position_count(&market), 0);
+  assert_eq!(instrument_market::free_collateral(&market, payer_id).value(), 7);
+  assert_eq!(
+    instrument_market::free_collateral(&market, receiver_id).value(),
+    13,
+  );
+  assert_eq!(instrument_market::position_collateral(&market, payer_id).value(), 0);
+  assert_eq!(
+    instrument_market::position_collateral(&market, receiver_id).value(),
+    0,
+  );
+  assert_eq!(instrument_market::total_collateral(&market).value(), 20);
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::ENothingToSettle)]
+fun terminal_settlement_cannot_apply_twice() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(4, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(4),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(4),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::enter_terminal(&mut market, &witness);
+  instrument_market::settle_terminal_position(&mut market, account_id, &witness);
+  instrument_market::settle_terminal_position(&mut market, account_id, &witness);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun terminal_settlement_releases_reserve_collateral_without_a_position() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut holder = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(6, test.ctx()),
+    test.ctx(),
+  );
+  let reserve = margin::new(test.ctx());
+  let holder_id = object::id(&holder);
+  let reserve_id = object::id(&reserve);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut holder,
+    usdc_amount::usdc(6),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &holder,
+    usdc_amount::usdc(6),
+    size::size(3),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::apply_carry(
+    &mut market,
+    holder_id,
+    reserve_id,
+    usdc_amount::usdc(2),
+    1,
+    true,
+    true,
+    &witness,
+  );
+  instrument_market::enter_terminal(&mut market, &witness);
+  instrument_market::settle_terminal_position(&mut market, reserve_id, &witness);
+
+  assert_eq!(instrument_market::has_position(&market, reserve_id), false);
+  assert_eq!(instrument_market::free_collateral(&market, reserve_id).value(), 2);
+  assert_eq!(
+    instrument_market::position_collateral(&market, reserve_id).value(),
+    0,
+  );
+  assert_eq!(instrument_market::total_collateral(&market).value(), 6);
+  margin::keep(holder, test.ctx());
+  margin::keep(reserve, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun terminal_cleanup_releases_all_reservations() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut bidder = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(9, test.ctx()),
+    test.ctx(),
+  );
+  let mut asker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let bidder_id = object::id(&bidder);
+  let asker_id = object::id(&asker);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut bidder,
+    usdc_amount::usdc(9),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut asker,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  let bid = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &bidder,
+    usdc_amount::usdc(9),
+    &witness,
+    order::bid(),
+    price::price(90),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, bid, &witness);
+  let ask = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &asker,
+    usdc_amount::usdc(10),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, ask, &witness);
+
+  instrument_market::enter_terminal(&mut market, &witness);
+  let canceled_bids = instrument_market::cancel_terminal_orders(
+    &mut market,
+    order::bid(),
+    10,
+    &witness,
+  );
+  let canceled_asks = instrument_market::cancel_terminal_orders(
+    &mut market,
+    order::ask(),
+    10,
+    &witness,
+  );
+
+  assert_eq!(canceled_bids, 1);
+  assert_eq!(canceled_asks, 1);
+  assert_eq!(instrument_market::bid_count(&market), 0);
+  assert_eq!(instrument_market::ask_count(&market), 0);
+  assert_eq!(instrument_market::free_collateral(&market, bidder_id).value(), 9);
+  assert_eq!(instrument_market::free_collateral(&market, asker_id).value(), 10);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 19);
+  margin::keep(bidder, test.ctx());
+  margin::keep(asker, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::ENotTerminal)]
+fun terminal_cleanup_requires_terminal_market() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  instrument_market::cancel_terminal_orders(
+    &mut market,
+    order::bid(),
+    1,
+    &witness,
+  );
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun terminal_cleanup_respects_explicit_bound() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let first = margin::new(test.ctx());
+  let second = margin::new(test.ctx());
+  let bid = instrument_market::place_limit_order(
+    &mut market,
+    &first,
+    object::id(&first),
+    &witness,
+    order::bid(),
+    price::price(90),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, bid, &witness);
+  let other_bid = instrument_market::place_limit_order(
+    &mut market,
+    &second,
+    object::id(&second),
+    &witness,
+    order::bid(),
+    price::price(80),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, other_bid, &witness);
+  instrument_market::enter_terminal(&mut market, &witness);
+
+  assert_eq!(
+    instrument_market::cancel_terminal_orders(
+      &mut market,
+      order::bid(),
+      1,
+      &witness,
+    ),
+    1,
+  );
+  assert_eq!(instrument_market::bid_count(&market), 1);
+  assert_eq!(
+    instrument_market::cancel_terminal_orders(
+      &mut market,
+      order::bid(),
+      1,
+      &witness,
+    ),
+    1,
+  );
+  assert_eq!(
+    instrument_market::cancel_terminal_orders(
+      &mut market,
+      order::bid(),
+      1,
+      &witness,
+    ),
+    0,
+  );
+  assert_eq!(instrument_market::bid_count(&market), 0);
+  margin::keep(first, test.ctx());
+  margin::keep(second, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}

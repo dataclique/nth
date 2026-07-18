@@ -44,7 +44,28 @@ const EWrongVersion: vector<u8> = b"market version is not supported";
 const EZeroIssuanceCollateral: vector<u8> =
   b"claim issuance collateral must be positive";
 
+#[error]
+const ETerminalMarket: vector<u8> =
+  b"a terminal market accepts no new orders or exposure";
+
+#[error]
+const ENotTerminal: vector<u8> =
+  b"transition requires the market to be terminal";
+
+#[error]
+const EAlreadyTerminal: vector<u8> = b"market is already terminal";
+
+#[error]
+const ENothingToSettle: vector<u8> =
+  b"account has no position and no position collateral to settle";
+
 // === Structs ===
+
+/// The only representable lifecycle phases for one market.
+public enum Phase has copy, drop, store {
+  Trading,
+  Terminal,
+}
 
 /// Generic matching and net-position state for one isolated instrument market.
 /// An instrument package stores this value inside its own shared market object
@@ -52,6 +73,7 @@ const EZeroIssuanceCollateral: vector<u8> =
 public struct Market<phantom Instrument> has key, store {
   id: UID,
   version: u64,
+  phase: Phase,
   orderbook: OrderBook<Instrument>,
   positions: Table<ID, Position<Instrument>>,
   position_count: u64,
@@ -85,6 +107,24 @@ public struct ClaimRedeemed<phantom Instrument> has copy, drop {
   collateral_amount: u64,
 }
 
+/// Emitted once when an instrument moves its market into the terminal phase.
+public struct MarketTerminated<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+}
+
+/// Emitted when a terminal market closes one account's exposure and returns
+/// all of its position collateral to free collateral. State codes are flat
+/// `0`, long `1`, and short `2`; sizes use the shared `10^6` scale.
+public struct PositionSettled<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+  margin_account_id: ID,
+  previous_state: u8,
+  previous_size: u64,
+  released_collateral: u64,
+}
+
 /// Emitted when collateral moves between accounts without changing exposure.
 public struct CarryApplied<phantom Instrument> has copy, drop {
   schema_version: u16,
@@ -115,11 +155,111 @@ public fun new<Instrument>(
   Market {
     id,
     version: MARKET_VERSION,
+    phase: Phase::Trading,
     orderbook: matching::empty(),
     positions: table::new(ctx),
     position_count: 0,
     collateral: collateral::new(ctx),
   }
+}
+
+/// Move this market into its terminal phase exactly once. A terminal market
+/// accepts no new orders or claim issuance; cancellation, carry, terminal
+/// settlement, and withdrawal remain available.
+public fun enter_terminal<Instrument>(
+  market: &mut Market<Instrument>,
+  _witness: &Instrument,
+) {
+  market.assert_version();
+  match (market.phase) {
+    Phase::Trading => (),
+    Phase::Terminal => abort EAlreadyTerminal,
+  };
+  market.phase = Phase::Terminal;
+  event::emit(MarketTerminated<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id: object::id(market),
+  });
+}
+
+/// Close one account's net exposure in a terminal market and return all of its
+/// position collateral to free collateral. Applies exactly once per account:
+/// a second call aborts because neither a position nor position collateral
+/// remains. Instruments realize payouts by directing carry between accounts
+/// before settling them.
+public fun settle_terminal_position<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account_id: ID,
+  _witness: &Instrument,
+) {
+  market.assert_version();
+  market.assert_terminal();
+  let market_id = object::id(market);
+  let has_position = market.positions.contains(margin_account_id);
+  let released_collateral = collateral::position(
+    &market.collateral,
+    margin_account_id,
+  );
+  assert!(
+    has_position || released_collateral.value() > 0,
+    ENothingToSettle,
+  );
+
+  let (previous_state, previous_size) = if (has_position) {
+    let position = market.positions.remove(margin_account_id);
+    let state = position::state(&position);
+    let size = position::size(&position);
+    position::destroy(position);
+    market.position_count = market.position_count - 1;
+    (state, size.value())
+  } else {
+    (position::flat(), 0)
+  };
+  collateral::move_position_to_free(
+    &mut market.collateral,
+    margin_account_id,
+    released_collateral,
+  );
+
+  event::emit(PositionSettled<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    margin_account_id,
+    previous_state,
+    previous_size,
+    released_collateral: released_collateral.value(),
+  });
+}
+
+/// Permissionlessly remove up to `max_orders` resting orders from `side` of a
+/// terminal market, returning each unconsumed reservation to its own order
+/// owner's free collateral. Returns how many orders were removed so keepers
+/// can continue until both sides are empty.
+public fun cancel_terminal_orders<Instrument>(
+  market: &mut Market<Instrument>,
+  side: Side,
+  max_orders: u64,
+  _witness: &Instrument,
+): u64 {
+  market.assert_version();
+  market.assert_terminal();
+  let market_id = object::id(market);
+  let mut canceled = 0;
+  while (canceled < max_orders && market.side_count(side) > 0) {
+    let obligation = matching::cancel_front(
+      &mut market.orderbook,
+      market_id,
+      side,
+    );
+    collateral::release(
+      &mut market.collateral,
+      market_id,
+      obligation.canceled_reservation_id(),
+    );
+    matching::destroy_cancel(obligation);
+    canceled = canceled + 1;
+  };
+  canceled
 }
 
 /// Move an exact USDC base-unit amount from the sender-owned margin account
@@ -186,6 +326,7 @@ public fun issue_long_claim<Instrument>(
   ctx: &TxContext,
 ) {
   market.assert_version();
+  market.assert_trading();
   assert!(
     margin::verify_owner(margin_account, ctx.sender()),
     EInvalidAccountOwner,
@@ -327,6 +468,7 @@ public fun place_collateralized_limit_order<Instrument>(
   ctx: &TxContext,
 ): FillObligation<Instrument> {
   market.assert_version();
+  market.assert_trading();
   assert!(
     margin::verify_owner(margin_account, ctx.sender()),
     EInvalidAccountOwner,
@@ -515,6 +657,14 @@ public fun id<Instrument>(market: &Market<Instrument>): ID {
   object::id(market)
 }
 
+/// Whether the market has entered its terminal phase.
+public fun is_terminal<Instrument>(market: &Market<Instrument>): bool {
+  match (market.phase) {
+    Phase::Trading => false,
+    Phase::Terminal => true,
+  }
+}
+
 /// Whether the market has materialized a position for `margin_account_id`.
 public fun has_position<Instrument>(
   market: &Market<Instrument>,
@@ -623,6 +773,27 @@ fun assert_obligation_market<Instrument>(
 
 fun assert_version<Instrument>(market: &Market<Instrument>) {
   assert!(market.version == MARKET_VERSION, EWrongVersion);
+}
+
+fun assert_trading<Instrument>(market: &Market<Instrument>) {
+  match (market.phase) {
+    Phase::Trading => (),
+    Phase::Terminal => abort ETerminalMarket,
+  };
+}
+
+fun assert_terminal<Instrument>(market: &Market<Instrument>) {
+  match (market.phase) {
+    Phase::Trading => abort ENotTerminal,
+    Phase::Terminal => (),
+  };
+}
+
+fun side_count<Instrument>(market: &Market<Instrument>, side: Side): u64 {
+  side.match_side!(
+    || matching::bid_count(&market.orderbook),
+    || matching::ask_count(&market.orderbook),
+  )
 }
 
 // === Test-Only Functions ===

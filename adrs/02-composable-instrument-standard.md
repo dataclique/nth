@@ -267,6 +267,17 @@ termination, and final redemption. The implementation computes the payout; the
 standard enforces one-time application, collateral conservation, position
 closure, and terminal-state finality.
 
+The kernel exposes this as `instrument_market::enter_terminal`,
+`settle_terminal_position`, and `cancel_terminal_orders`. Terminal entry is
+one-way and one-time; a terminal market rejects new orders and claim issuance
+while cancellation, carry, and withdrawal remain available. Settlement closes
+one account's exposure and returns all of its position collateral to free
+collateral exactly once; instruments realize payouts by directing carry between
+accounts before settling them, so the standard never computes a payout value.
+Terminal order cleanup is permissionless and bounded per call, releasing each
+resting reservation to its own order owner. Binding an expiry value exactly once
+remains the instrument's responsibility.
+
 #### Forced settlement
 
 An instrument can force-reduce or close a position through liquidation, backstop

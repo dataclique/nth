@@ -202,6 +202,12 @@ public(package) fun redeem_long_claim<Instrument>(
   };
 }
 
+/// Consume one position during terminal settlement. Only the containing
+/// market's terminal transition may close exposure this way.
+public(package) fun destroy<Instrument>(position: Position<Instrument>) {
+  let Position { account_id: _, exposure: _ } = position;
+}
+
 /// Preserve a named position-module abort when a market has no materialized
 /// positive claim for an account.
 public(package) fun assert_long_claim_materialized(materialized: bool) {

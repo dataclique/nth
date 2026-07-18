@@ -67,9 +67,24 @@ instrument chooses payer, receiver, amount, period key, and bucket sides; the
 standard conserves USDC, rejects zero or self transfers, and emits
 `CarryApplied`. Period idempotence stays with the instrument.
 
+Terminal settlement gives every market a one-way end of life. The witness holder
+calls `instrument_market::enter_terminal` exactly once; after `MarketTerminated`
+the market rejects new orders and claim issuance while cancellation, carry,
+terminal settlement, and withdrawal remain available. `settle_terminal_position`
+closes one account's exposure — long, short, or a bare position-collateral
+balance — and returns all of its position collateral to free collateral,
+emitting `PositionSettled`; a second application aborts because nothing remains
+to settle. Instruments realize expiry payouts by directing carry between
+accounts before settling them, so the standard never computes a payout.
+`cancel_terminal_orders` permissionlessly removes up to an explicit bound of
+resting orders per call, releasing each reservation to its own order owner, so
+keepers can drain the book without owner signatures.
+
 `contracts/conformance` contains independent linear and expiring wrappers that
-compile against the public kernel boundary. The full design, lifecycle scope,
-and remaining directed-cash-flow conformance work are specified in
+compile against the public kernel boundary. The expiring wrapper binds its
+expiry value exactly once, terminates the kernel market, and settles long/short
+pairs through the standard transitions. The full design, lifecycle scope, and
+remaining forced-settlement conformance work are specified in
 [ADR 02](../adrs/02-composable-instrument-standard.md).
 
 ### Pool
