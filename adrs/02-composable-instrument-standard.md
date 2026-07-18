@@ -252,6 +252,17 @@ Keeper rewards are conserved cash flows. They come from an instrument reserve,
 collected fees, or an explicitly disclosed participant charge; maintenance never
 mints collateral or silently socializes an unfunded payment.
 
+The kernel exposes this bookkeeping as `instrument_market::register_maintenance`
+and `claim_maintenance` over a per-market `nth::maintenance` schedule. An action
+kind registers exactly once with its wall-clock period interval, pre-funded
+reserve account, and per-period reward cap. Periods advance sequentially and
+apply exactly once; period `p` becomes claimable only at
+`registration + p × interval`, so catching up past periods is immediate while
+future periods stay locked. The reward moves from the reserve's free collateral
+to a keeper margin account that the transaction sender must own, and the
+instrument invokes the claim in the same transaction as its authoritative state
+advance, tying the payment to real work.
+
 A perpetual should normally update one cumulative funding index per period
 rather than iterate every position hourly. Positions realize the index delta
 when they are next touched, or through separately bounded maintenance batches.

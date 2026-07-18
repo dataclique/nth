@@ -36,6 +36,7 @@ Typed fixed-point quantities — one module per type. See `units/README.md` and
 | `sources/position.move`          | `nth::position`          | Account-bound generic net exposure                         |
 | `sources/collateral.move`        | `nth::collateral`        | Market-isolated USDC balances and order reservations       |
 | `sources/matching.move`          | `nth::matching`          | Generic CLOB + fill and cancellation obligations           |
+| `sources/maintenance.move`       | `nth::maintenance`       | Per-market keeper-action periods, idempotence, reward caps |
 | `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions + cursor-checked settlement         |
 | `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, funding   |
 | `sources/pool.move`              | `nth::pool`              | `Pool`: vault + orderbook + oracle, entry points, cadence  |

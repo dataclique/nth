@@ -2043,6 +2043,298 @@ fun terminal_cleanup_requires_terminal_market() {
   test.end();
 }
 
+/// Market with a funded reward reserve and one registered maintenance action:
+/// kind `1`, periods every `1_000` ms from registration at time zero, rewards
+/// capped at `3` base units.
+fun market_with_maintenance(
+  test: &mut test_scenario::Scenario,
+): (Market<Linear>, MarginAccount, MarginAccount, sui::clock::Clock) {
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut reserve = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let keeper = margin::new(test.ctx());
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut reserve,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  let clock = sui::clock::create_for_testing(test.ctx());
+  instrument_market::register_maintenance(
+    &mut market,
+    1,
+    1_000,
+    object::id(&reserve),
+    usdc_amount::usdc(3),
+    &clock,
+    &witness,
+  );
+  (market, reserve, keeper, clock)
+}
+
+#[test]
+fun maintenance_claims_pay_keeper_sequentially_from_reserve() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  let reserve_id = object::id(&reserve);
+  let keeper_id = object::id(&keeper);
+
+  assert_eq!(instrument_market::maintenance_last_period(&market, 1), 0);
+  clock.set_for_testing(2_500);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(3),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    2,
+    usdc_amount::usdc(2),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+
+  assert_eq!(instrument_market::maintenance_last_period(&market, 1), 2);
+  assert_eq!(instrument_market::free_collateral(&market, keeper_id).value(), 5);
+  assert_eq!(instrument_market::free_collateral(&market, reserve_id).value(), 5);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 10);
+
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EPeriodNotNext)]
+fun duplicate_maintenance_cannot_claim_reward() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  clock.set_for_testing(1_000);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EPeriodNotNext)]
+fun maintenance_cannot_skip_a_period() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  clock.set_for_testing(5_000);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    2,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EPeriodNotDue)]
+fun premature_maintenance_period_cannot_be_claimed() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  clock.set_for_testing(999);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::ERewardExceedsCap)]
+fun maintenance_reward_cannot_exceed_registered_cap() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  clock.set_for_testing(1_000);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(4),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientFreeCollateral)]
+fun maintenance_reward_requires_a_funded_reserve() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let reserve = margin::new(test.ctx());
+  let keeper = margin::new(test.ctx());
+  let clock = sui::clock::create_for_testing(test.ctx());
+  instrument_market::register_maintenance(
+    &mut market,
+    1,
+    0,
+    object::id(&reserve),
+    usdc_amount::usdc(3),
+    &clock,
+    &witness,
+  );
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(3),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EActionKindExists)]
+fun maintenance_kind_cannot_register_twice() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, clock) =
+    market_with_maintenance(&mut test);
+  instrument_market::register_maintenance(
+    &mut market,
+    1,
+    2_000,
+    object::id(&reserve),
+    usdc_amount::usdc(1),
+    &clock,
+    &witness,
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EActionUnknown)]
+fun unknown_maintenance_action_cannot_be_claimed() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, reserve, keeper, clock) =
+    market_with_maintenance(&mut test);
+  instrument_market::claim_maintenance(
+    &mut market,
+    2,
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = instrument_market::EInvalidAccountOwner)]
+fun foreign_sender_cannot_claim_maintenance_to_anothers_account() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (market, reserve, keeper, mut clock) =
+    market_with_maintenance(&mut test);
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  transfer::public_share_object(market);
+
+  test.next_tx(@0xB0B);
+  let mut market = test.take_shared<Market<Linear>>();
+  let keeper = test.take_from_address<MarginAccount>(ALICE);
+  clock.set_for_testing(1_000);
+  instrument_market::claim_maintenance(
+    &mut market,
+    1,
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    &witness,
+    test.ctx(),
+  );
+  test_scenario::return_shared(market);
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  test.end();
+}
+
 fun claim_market_with_position(
   test: &mut test_scenario::Scenario,
   deposit: u64,

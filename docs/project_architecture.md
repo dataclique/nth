@@ -80,6 +80,18 @@ accounts before settling them, so the standard never computes a payout.
 resting orders per call, releasing each reservation to its own order owner, so
 keepers can drain the book without owner signatures.
 
+Permissionless maintenance bookkeeping lives in the per-market
+`nth::maintenance` schedule. An instrument registers each maintenance action
+kind once via `instrument_market::register_maintenance` — wall-clock period
+interval, pre-funded reserve account, per-period reward cap — and wraps
+`claim_maintenance` around its own state advance so the reward is paid in the
+same transaction as the work. Periods apply sequentially and exactly once,
+become claimable only at their wall-clock start (past periods catch up
+immediately), and pay at most the cap from the reserve's free collateral to a
+keeper margin account the transaction sender must own, so payments cannot be
+redirected. `ActionRegistered` and `PeriodClaimed` events record kind, period,
+keeper, and reward.
+
 Forced settlement uses `instrument_market::force_reduce_position` to shrink or
 close an open exposure through an instrument-proven distress path. The reduction
 can never flip a position; equality closes to flat, and the released position

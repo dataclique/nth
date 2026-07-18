@@ -273,6 +273,217 @@ fun external_claim_instrument_issues_and_redeems_through_the_kernel() {
   test.end();
 }
 
+#[test]
+fun external_keeper_earns_reward_only_with_funding_state_advance() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut short_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut long_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut reserve = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(4, test.ctx()),
+    test.ctx(),
+  );
+  let keeper = margin::new(test.ctx());
+  let short_id = object::id(&short_account);
+  let long_id = object::id(&long_account);
+  let reserve_id = object::id(&reserve);
+  let keeper_id = object::id(&keeper);
+  let mut market = linear::new(test.ctx());
+  linear::deposit_collateral(
+    &mut market,
+    &mut short_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut long_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut reserve,
+    usdc_amount::usdc(4),
+    test.ctx(),
+  );
+
+  let ask = linear::place_limit_order(
+    &mut market,
+    &short_account,
+    usdc_amount::usdc(8),
+    order::ask(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::complete(&market, ask);
+  let mut bid = linear::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(8),
+    order::bid(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::settle_next(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(8),
+    usdc_amount::usdc(8),
+  );
+  linear::complete(&market, bid);
+
+  let mut clock = sui::clock::create_for_testing(test.ctx());
+  linear::enable_funding_rewards(
+    &mut market,
+    1_000,
+    reserve_id,
+    usdc_amount::usdc(2),
+    &clock,
+  );
+  clock.set_for_testing(1_000);
+  linear::settle_funding_with_reward(
+    &mut market,
+    short_id,
+    long_id,
+    usdc_amount::usdc(3),
+    1,
+    usdc_amount::usdc(2),
+    &keeper,
+    &clock,
+    test.ctx(),
+  );
+
+  assert_eq!(linear::position_size(&market, short_id).value(), 8);
+  assert_eq!(linear::position_size(&market, long_id).value(), 8);
+  assert_eq!(linear::position_collateral(&market, short_id).value(), 5);
+  assert_eq!(linear::position_collateral(&market, long_id).value(), 11);
+  assert_eq!(linear::free_collateral(&market, keeper_id).value(), 2);
+  assert_eq!(linear::free_collateral(&market, reserve_id).value(), 2);
+  assert_eq!(linear::total_collateral(&market).value(), 24);
+
+  margin::keep(short_account, test.ctx());
+  margin::keep(long_account, test.ctx());
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  linear::share(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::maintenance::EPeriodNotNext)]
+fun duplicate_funding_round_cannot_claim_a_second_reward() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut short_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut long_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut reserve = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(4, test.ctx()),
+    test.ctx(),
+  );
+  let keeper = margin::new(test.ctx());
+  let short_id = object::id(&short_account);
+  let long_id = object::id(&long_account);
+  let mut market = linear::new(test.ctx());
+  linear::deposit_collateral(
+    &mut market,
+    &mut short_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut long_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut reserve,
+    usdc_amount::usdc(4),
+    test.ctx(),
+  );
+
+  let ask = linear::place_limit_order(
+    &mut market,
+    &short_account,
+    usdc_amount::usdc(8),
+    order::ask(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::complete(&market, ask);
+  let mut bid = linear::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(8),
+    order::bid(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::settle_next(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(8),
+    usdc_amount::usdc(8),
+  );
+  linear::complete(&market, bid);
+
+  let mut clock = sui::clock::create_for_testing(test.ctx());
+  linear::enable_funding_rewards(
+    &mut market,
+    1_000,
+    object::id(&reserve),
+    usdc_amount::usdc(2),
+    &clock,
+  );
+  clock.set_for_testing(1_000);
+  linear::settle_funding_with_reward(
+    &mut market,
+    short_id,
+    long_id,
+    usdc_amount::usdc(1),
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    test.ctx(),
+  );
+  linear::settle_funding_with_reward(
+    &mut market,
+    short_id,
+    long_id,
+    usdc_amount::usdc(1),
+    1,
+    usdc_amount::usdc(1),
+    &keeper,
+    &clock,
+    test.ctx(),
+  );
+
+  margin::keep(short_account, test.ctx());
+  margin::keep(long_account, test.ctx());
+  margin::keep(reserve, test.ctx());
+  margin::keep(keeper, test.ctx());
+  sui::clock::destroy_for_testing(clock);
+  linear::share(market);
+  test.end();
+}
+
 /// Realistically scaled linear market: 8 units of exposure at 100 USDC, the
 /// short backed by 300 USDC and the long by only 100 USDC of position
 /// collateral. Maintenance margin at the 100 USDC mark is 200 USDC, so the

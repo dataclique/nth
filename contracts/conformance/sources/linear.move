@@ -14,6 +14,9 @@ use units::usdc_amount::{Self, UsdcAmount};
 /// Maintenance margin as a plain percent of notional at the mark price.
 const MAINTENANCE_MARGIN_PERCENT: u64 = 25;
 
+/// This instrument's kernel maintenance-action kind for funding rounds.
+const FUNDING_ACTION_KIND: u64 = 1;
+
 // === Errors ===
 
 #[error]
@@ -106,6 +109,65 @@ public fun cancel_order(
     order_id,
     ctx,
   )
+}
+
+/// Register this market's funding round as a permissionless, keeper-rewarded
+/// maintenance action. `reserve_account_id`'s free collateral funds rewards
+/// capped at `max_reward` per period.
+public fun enable_funding_rewards(
+  market: &mut LinearMarket,
+  period_interval_ms: u64,
+  reserve_account_id: ID,
+  max_reward: UsdcAmount,
+  clock: &sui::clock::Clock,
+) {
+  let witness = witness();
+  instrument_market::register_maintenance(
+    &mut market.kernel,
+    FUNDING_ACTION_KIND,
+    period_interval_ms,
+    reserve_account_id,
+    max_reward,
+    clock,
+    &witness,
+  );
+}
+
+/// Permissionlessly settle one funding round and claim its keeper reward in
+/// the same transaction: the reward can only be paid when the authoritative
+/// funding state advances, and each period settles exactly once.
+public fun settle_funding_with_reward(
+  market: &mut LinearMarket,
+  payer_account_id: ID,
+  receiver_account_id: ID,
+  amount: UsdcAmount,
+  period: u64,
+  reward: UsdcAmount,
+  keeper_account: &MarginAccount,
+  clock: &sui::clock::Clock,
+  ctx: &TxContext,
+) {
+  let witness = witness();
+  instrument_market::claim_maintenance(
+    &mut market.kernel,
+    FUNDING_ACTION_KIND,
+    period,
+    reward,
+    keeper_account,
+    clock,
+    &witness,
+    ctx,
+  );
+  instrument_market::apply_carry(
+    &mut market.kernel,
+    payer_account_id,
+    receiver_account_id,
+    amount,
+    period,
+    true,
+    true,
+    &witness,
+  );
 }
 
 /// Apply one funding-style carry between two accounts' position collateral.

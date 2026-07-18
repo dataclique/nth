@@ -1,6 +1,7 @@
 module nth::instrument_market;
 
 use nth::collateral::{Self, ReservationId, Silo};
+use nth::maintenance::{Self, Schedule};
 use nth::margin::{Self, MarginAccount};
 use nth::matching::{
   Self,
@@ -11,6 +12,7 @@ use nth::matching::{
 };
 use nth::order::{Self, OrderId, Side};
 use nth::position::{Self, Position};
+use sui::clock::Clock;
 use sui::coin;
 use sui::event;
 use sui::table::{Self, Table};
@@ -78,6 +80,7 @@ public struct Market<phantom Instrument> has key, store {
   positions: Table<ID, Position<Instrument>>,
   position_count: u64,
   collateral: Silo<Instrument>,
+  maintenance: Schedule<Instrument>,
 }
 
 // === Events ===
@@ -173,7 +176,88 @@ public fun new<Instrument>(
     positions: table::new(ctx),
     position_count: 0,
     collateral: collateral::new(ctx),
+    maintenance: maintenance::new(ctx),
   }
+}
+
+/// Register one permissionless maintenance action kind exactly once for this
+/// market. The instrument names the action `kind`, the wall-clock spacing of
+/// its periods, the pre-funded reserve account whose free collateral pays
+/// keeper rewards, and the per-period reward cap.
+public fun register_maintenance<Instrument>(
+  market: &mut Market<Instrument>,
+  kind: u64,
+  period_interval_ms: u64,
+  reserve_account_id: ID,
+  max_reward: UsdcAmount,
+  clock: &Clock,
+  _witness: &Instrument,
+) {
+  market.assert_version();
+  let market_id = object::id(market);
+  maintenance::register(
+    &mut market.maintenance,
+    market_id,
+    kind,
+    period_interval_ms,
+    reserve_account_id,
+    max_reward,
+    clock,
+  );
+}
+
+/// Claim one maintenance period after the instrument advanced its
+/// authoritative state in the same transaction. Periods apply sequentially
+/// and exactly once, become claimable only at their wall-clock start, and pay
+/// at most the registered cap from the reserve's free collateral to the
+/// sender-owned keeper account — the sender is the recipient by construction,
+/// so a keeper payment cannot be redirected.
+public fun claim_maintenance<Instrument>(
+  market: &mut Market<Instrument>,
+  kind: u64,
+  period: u64,
+  reward: UsdcAmount,
+  keeper_account: &MarginAccount,
+  clock: &Clock,
+  _witness: &Instrument,
+  ctx: &TxContext,
+) {
+  market.assert_version();
+  assert!(
+    margin::verify_owner(keeper_account, ctx.sender()),
+    EInvalidAccountOwner,
+  );
+  let market_id = object::id(market);
+  let keeper_account_id = object::id(keeper_account);
+  maintenance::validate_claim(
+    &market.maintenance,
+    kind,
+    period,
+    reward,
+    clock,
+  );
+  if (reward.value() > 0) {
+    let reserve_account_id = maintenance::reserve_account_id(
+      &market.maintenance,
+      kind,
+    );
+    collateral::transfer_carry(
+      &mut market.collateral,
+      reserve_account_id,
+      keeper_account_id,
+      reward,
+      false,
+      false,
+    );
+  };
+  maintenance::record_claim(
+    &mut market.maintenance,
+    market_id,
+    kind,
+    period,
+    keeper_account_id,
+    reward,
+  );
 }
 
 /// Move this market into its terminal phase exactly once. A terminal market
@@ -715,6 +799,15 @@ public fun complete_cancel<Instrument>(
 /// Stable identity used by orders, obligations, positions, and events.
 public fun id<Instrument>(market: &Market<Instrument>): ID {
   object::id(market)
+}
+
+/// Last claimed period for one registered maintenance action kind, `0`
+/// before the first claim. Aborts for an unregistered kind.
+public fun maintenance_last_period<Instrument>(
+  market: &Market<Instrument>,
+  kind: u64,
+): u64 {
+  maintenance::last_period(&market.maintenance, kind)
 }
 
 /// Whether the market has entered its terminal phase.
