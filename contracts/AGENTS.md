@@ -51,6 +51,19 @@ on `nth`, while `nth` imports neither fixture; its tests prove private
 witnesses, wrapper-owned markets, typed obligations, cancellation, isolated
 positions, and claim issuance/redemption across the public package boundary.
 
+### `perpetual/` (`perpetual::*`)
+
+The complete linear perpetual reference instrument on the standard. Depends on
+`nth` and `units`; the kernel imports nothing from it.
+
+| File                             | Module                  | Contents                                                        |
+| -------------------------------- | ----------------------- | --------------------------------------------------------------- |
+| `perpetual/sources/perp.move`    | `perpetual::perp`       | Market wrapper: margin placement, entries, funding, liquidation |
+| `perpetual/sources/risk.move`    | `perpetual::risk`       | Perp margin/liquidation/funding math on shared units, u128      |
+| `perpetual/sources/oracle.move`  | `perpetual::oracle`     | Capability-gated mark price with a staleness bound              |
+| `perpetual/sources/funding.move` | `perpetual::funding`    | Cumulative funding indexes, per-account cursors, accruals       |
+| `perpetual/tests/`               | `perpetual::perp_tests` | Margin, entry, funding, and liquidation coverage                |
+
 ## Module Organization
 
 Package by domain, never by kind. A module is one domain concept with its data,
@@ -76,6 +89,7 @@ Build and test inside the dev shell:
 cd contracts/units && sui move test   # units package
 cd contracts && sui move test          # nth package — must be green ALWAYS
 cd contracts/conformance && sui move test # external instrument fixtures
+cd contracts/perpetual && sui move test   # perpetual reference instrument
 sui move test <filter>                 # run matching tests during iteration
 ```
 

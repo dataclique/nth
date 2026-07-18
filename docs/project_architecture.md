@@ -111,6 +111,28 @@ proving its maintenance-margin trigger and paying a keeper penalty via carry.
 The full design and remaining lifecycle scope are specified in
 [ADR 02](../adrs/02-composable-instrument-standard.md).
 
+### Perpetual reference instrument
+
+`contracts/perpetual` is the complete linear perpetual built on the standard —
+the first production-shaped reference instrument, owning everything the kernel
+delegates: `perpetual::risk` reimplements the margin, liquidation, and funding
+formulas on the shared `units::*` types in u128; `perpetual::oracle` is the
+capability-gated mark price with an explicit staleness bound checked before
+every funding round and liquidation; `perpetual::funding` adapts
+[docs/funding.md](funding.md) to account-bound positions with two cumulative
+indexes (`long_pays`, `short_pays` accumulating `mark_price * rate_bps` per
+round) plus per-account cursors, because positions live in a table and cannot be
+enumerated eagerly on-chain. `perpetual::perp` composes them: placement computes
+initial margin from the order's own leverage and reserves it, each fill consumes
+margin at each party's leverage while accruing funding and updating a
+double-scaled average-entry notional at pre-fill exposure, funding rounds are
+permissionless keeper-rewarded maintenance claims that derive the rate from the
+live book mid, per-account funding settles lazily through carry against a
+pre-funded reserve (payments capped at position collateral, receivables from
+reserve free collateral), and liquidation proves the entry-anchored threshold at
+a fresh mark before force-reducing the full position with a percent penalty
+carried to the keeper.
+
 ### Pool
 
 The Pool is the central component that orchestrates all trading activities for a

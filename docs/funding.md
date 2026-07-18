@@ -107,3 +107,24 @@ $$
 The long's margin ($99 \cdot 4 / 2 = 198$) becomes $194.04$; the short's
 ($103 \cdot 4 / 2 = 206$) becomes $209.96$. The vault total, $404$ USDC, is
 unchanged.
+
+## Funding on the instrument standard
+
+The perpetual reference instrument (`contracts/perpetual`) keeps the rate
+formula above but replaces the eager per-order sweep with a **lazy funding
+index**, because positions on the standard are account-bound entries in a table
+and cannot be enumerated on-chain.
+
+- Each permissionless round (a keeper-rewarded maintenance claim through the
+  kernel's sequential one-time periods) computes $r$ from the live book mid and
+  a staleness-checked mark price, then adds $P_o \cdot r$ to the paying side's
+  cumulative index (`long_pays` or `short_pays`), undivided to keep precision.
+- Each account carries a cursor snapshotted at every position change; the amount
+  accrued over an index delta $\Delta$ is $S \cdot \Delta / 10^6 /
+  10^4$, using the mark price of each round rather than the entry price.
+- Accrual is pure bookkeeping. `settle_account_funding` is permissionless: it
+  nets both directions and moves collateral through the kernel's carry
+  transition against a pre-funded reserve account — payments debit position
+  collateral (capped at what the position holds, remainder forgiven, exactly as
+  above), receivables credit from the reserve's free collateral, so the reserve
+  absorbs timing gaps and forgiven shortfalls.
