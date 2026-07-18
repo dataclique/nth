@@ -143,14 +143,16 @@ state, oracle state, expiry, exercise, NAV, rebalancing, or liquidation rules.
 The instrument package wraps the matching kernel:
 
 1. It validates the caller and instrument-specific order requirements.
-2. It reserves the resources required for the order in that isolated market.
+2. It supplies the required amount to the standard-owned reservation transition
+   in that isolated market.
 3. It calls the generic matching kernel.
 4. The kernel updates the book and returns a non-droppable batch describing
    every maker/taker fill and any resting remainder.
-5. The instrument implementation inspects the next fill and performs its
-   instrument-specific accounting.
-6. A standard-owned `settle_next` transition updates both generic net positions
-   and advances a private settlement cursor exactly once.
+5. The instrument implementation inspects the next fill and supplies the
+   instrument-calculated reservation amounts to consume for each side.
+6. A standard-owned settlement transition moves those amounts into position
+   collateral, updates both generic net positions, and advances a private
+   settlement cursor exactly once.
 7. The instrument consumes the obligation only after the cursor proves every
    fill settled and all post-trade checks succeed.
 

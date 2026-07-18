@@ -6,6 +6,7 @@ use nth::matching::{CancelObligation, Fill, FillObligation};
 use nth::order::{OrderId, Side};
 use units::price::Price;
 use units::size::Size;
+use units::usdc_amount::UsdcAmount;
 
 // === Structs ===
 
@@ -36,21 +37,38 @@ public fun share(market: LinearMarket) {
   transfer::share_object(market);
 }
 
+/// Move USDC base units into this linear market's isolated collateral.
+public fun deposit_collateral(
+  market: &mut LinearMarket,
+  margin_account: &mut MarginAccount,
+  amount: UsdcAmount,
+  ctx: &mut TxContext,
+) {
+  let witness = witness();
+  instrument_market::deposit_collateral(
+    &mut market.kernel,
+    margin_account,
+    amount,
+    &witness,
+    ctx,
+  );
+}
+
 /// Match a linear limit order after the standard verifies account ownership.
 public fun place_limit_order(
   market: &mut LinearMarket,
   margin_account: &MarginAccount,
-  reservation_id: ID,
+  reservation_amount: UsdcAmount,
   side: Side,
   price: Price,
   size: Size,
   ctx: &TxContext,
 ): FillObligation<Linear> {
   let witness = witness();
-  instrument_market::place_limit_order(
+  instrument_market::place_collateralized_limit_order(
     &mut market.kernel,
     margin_account,
-    reservation_id,
+    reservation_amount,
     &witness,
     side,
     price,
@@ -82,11 +100,15 @@ public fun cancel_order(
 public fun settle_next(
   market: &mut LinearMarket,
   obligation: &mut FillObligation<Linear>,
+  maker_collateral: UsdcAmount,
+  taker_collateral: UsdcAmount,
 ): Fill<Linear> {
   let witness = witness();
-  instrument_market::settle_next(
+  instrument_market::settle_next_with_collateral(
     &mut market.kernel,
     obligation,
+    maker_collateral,
+    taker_collateral,
     &witness,
   )
 }
@@ -127,6 +149,27 @@ public fun position_size(
   margin_account_id: ID,
 ): Size {
   instrument_market::position_size(&market.kernel, margin_account_id)
+}
+
+/// Free USDC base units available to the account in this market.
+public fun free_collateral(
+  market: &LinearMarket,
+  margin_account_id: ID,
+): UsdcAmount {
+  instrument_market::free_collateral(&market.kernel, margin_account_id)
+}
+
+/// USDC base units backing the account's linear net position.
+public fun position_collateral(
+  market: &LinearMarket,
+  margin_account_id: ID,
+): UsdcAmount {
+  instrument_market::position_collateral(&market.kernel, margin_account_id)
+}
+
+/// Total USDC base units isolated inside this linear market.
+public fun total_collateral(market: &LinearMarket): UsdcAmount {
+  instrument_market::total_collateral(&market.kernel)
 }
 
 // === Private Functions ===

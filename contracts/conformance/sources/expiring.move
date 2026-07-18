@@ -6,6 +6,7 @@ use nth::matching::{CancelObligation, Fill, FillObligation};
 use nth::order::{OrderId, Side};
 use units::price::Price;
 use units::size::Size;
+use units::usdc_amount::UsdcAmount;
 
 // === Structs ===
 
@@ -40,17 +41,17 @@ public fun share(market: ExpiringMarket) {
 public fun place_limit_order(
   market: &mut ExpiringMarket,
   margin_account: &MarginAccount,
-  reservation_id: ID,
+  reservation_amount: UsdcAmount,
   side: Side,
   price: Price,
   size: Size,
   ctx: &TxContext,
 ): FillObligation<Expiring> {
   let witness = witness();
-  instrument_market::place_limit_order(
+  instrument_market::place_collateralized_limit_order(
     &mut market.kernel,
     margin_account,
-    reservation_id,
+    reservation_amount,
     &witness,
     side,
     price,
@@ -82,11 +83,15 @@ public fun cancel_order(
 public fun settle_next(
   market: &mut ExpiringMarket,
   obligation: &mut FillObligation<Expiring>,
+  maker_collateral: UsdcAmount,
+  taker_collateral: UsdcAmount,
 ): Fill<Expiring> {
   let witness = witness();
-  instrument_market::settle_next(
+  instrument_market::settle_next_with_collateral(
     &mut market.kernel,
     obligation,
+    maker_collateral,
+    taker_collateral,
     &witness,
   )
 }

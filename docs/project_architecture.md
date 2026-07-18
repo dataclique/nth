@@ -17,6 +17,7 @@ perpetual prototype while those economics migrate onto the standard.
 | `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
 | `sources/order.move`             | `nth::order`             | `Order` struct, `Side` enum, `OrderId`                              |
 | `sources/position.move`          | `nth::position`          | Generic flat/long/short net exposure                                |
+| `sources/collateral.move`        | `nth::collateral`        | Market-isolated USDC custody and typed order reservations           |
 | `sources/matching.move`          | `nth::matching`          | Generic CLOB and non-droppable fill/cancel obligations              |
 | `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions and settlement cursor checks                 |
 | `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, events             |
@@ -30,26 +31,31 @@ perpetual prototype while those economics migrate onto the standard.
 
 An external instrument package defines a privately constructible type witness
 and wraps `instrument_market::Market<Instrument>` inside its own shared market
-object. The wrapper can add a collateral silo, oracle state, expiry, funding
-index, NAV, manager policy, or other instrument-specific state without the
+object. The wrapper can add oracle state, expiry, funding indexes, NAV, manager
+policy, insurance reserves, or other instrument-specific state without the
 kernel importing that package.
 
 Each generic market owns one bounded price-time-priority orderbook and a keyed
 table containing at most one net position per margin-account ID. Positions are
 logically account-bound but market-owned: a taker transaction cannot include the
-address-owned account of every resting maker. `Position<Instrument>` has no
-`key`, no extraction API, and no independent transfer path.
+address-owned account of every resting maker. The same market owns an isolated
+USDC silo with free, order-reserved, and position collateral for each account.
+Deposits and withdrawals still require the address-owned account, while fills
+consume reservations without it. `Position<Instrument>` has no `key`, no
+extraction API, and no independent transfer path.
 
 Matching returns a `FillObligation<Instrument>` with no abilities. The wrapper
-can inspect each fill, but only `instrument_market::settle_next` advances the
-private cursor, after applying both maker and taker net-position transitions.
-`complete` aborts unless every fill advanced. Fill batches are capped at 32 and
-each book side at 1,024 resting orders; these are explicit protocol bounds, not
-assumptions about transaction gas.
+can inspect each fill and calculate how much of each side's reservation becomes
+position collateral, but only `instrument_market::settle_next_with_collateral`
+applies those debits, updates both net positions, and advances the private
+cursor. Full fills and cancellations return any unconsumed reserve to free
+collateral. `complete` aborts unless every fill advanced. Fill batches are
+capped at 32 and each book side at 1,024 resting orders; these are explicit
+protocol bounds, not assumptions about transaction gas.
 
 `contracts/conformance` contains independent linear and expiring wrappers that
 compile against the public kernel boundary. The full design, lifecycle scope,
-and remaining collateral conformance work are specified in
+and remaining directed-cash-flow conformance work are specified in
 [ADR 02](../adrs/02-composable-instrument-standard.md).
 
 ### Pool

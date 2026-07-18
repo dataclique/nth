@@ -1,5 +1,6 @@
 module nth::matching;
 
+use nth::collateral::ReservationId;
 use nth::order::{Self, OrderId, Side};
 use sui::event;
 use units::price::{Price};
@@ -47,7 +48,7 @@ const EOrderNotFound: vector<u8> =
 public struct RestingOrder<phantom Instrument> has drop, store {
   order_id: OrderId,
   margin_account_id: ID,
-  reservation_id: ID,
+  reservation_id: ReservationId,
   side: Side,
   price: Price,
   size: Size,
@@ -67,11 +68,12 @@ public struct Fill<phantom Instrument> has copy, drop {
   taker_order_id: OrderId,
   maker_margin_account_id: ID,
   taker_margin_account_id: ID,
-  maker_reservation_id: ID,
-  taker_reservation_id: ID,
+  maker_reservation_id: ReservationId,
+  taker_reservation_id: ReservationId,
   maker_side: Side,
   price: Price,
   size: Size,
+  maker_fully_filled: bool,
 }
 
 /// Non-droppable result of matching. The standard advances `settled_fills`
@@ -79,7 +81,7 @@ public struct Fill<phantom Instrument> has copy, drop {
 public struct FillObligation<phantom Instrument> {
   market_id: ID,
   order_id: OrderId,
-  reservation_id: ID,
+  reservation_id: ReservationId,
   resting_size: Size,
   fills: vector<Fill<Instrument>>,
   settled_fills: u64,
@@ -90,7 +92,7 @@ public struct FillObligation<phantom Instrument> {
 public struct CancelObligation<phantom Instrument> {
   market_id: ID,
   order_id: OrderId,
-  reservation_id: ID,
+  reservation_id: ReservationId,
   remaining_size: Size,
 }
 
@@ -102,7 +104,7 @@ public struct OrderRested<phantom Instrument> has copy, drop {
   market_id: ID,
   order_id: u64,
   margin_account_id: ID,
-  reservation_id: ID,
+  reservation_id: u64,
   is_bid: bool,
   price: u64,
   remaining_size: u64,
@@ -116,11 +118,12 @@ public struct OrderFilled<phantom Instrument> has copy, drop {
   taker_order_id: u64,
   maker_margin_account_id: ID,
   taker_margin_account_id: ID,
-  maker_reservation_id: ID,
-  taker_reservation_id: ID,
+  maker_reservation_id: u64,
+  taker_reservation_id: u64,
   maker_is_bid: bool,
   price: u64,
   size: u64,
+  maker_fully_filled: bool,
 }
 
 /// Emitted when an account removes its own resting order.
@@ -129,7 +132,7 @@ public struct OrderCanceled<phantom Instrument> has copy, drop {
   market_id: ID,
   order_id: u64,
   margin_account_id: ID,
-  reservation_id: ID,
+  reservation_id: u64,
   is_bid: bool,
   remaining_size: u64,
 }
@@ -168,13 +171,17 @@ public fun taker_margin_account_id<Instrument>(fill: &Fill<Instrument>): ID {
   fill.taker_margin_account_id
 }
 
-/// Opaque instrument-owned reservation ID backing the maker order.
-public fun maker_reservation_id<Instrument>(fill: &Fill<Instrument>): ID {
+/// Market-local collateral reservation backing the maker order.
+public fun maker_reservation_id<Instrument>(
+  fill: &Fill<Instrument>,
+): ReservationId {
   fill.maker_reservation_id
 }
 
-/// Opaque instrument-owned reservation ID backing the taker order.
-public fun taker_reservation_id<Instrument>(fill: &Fill<Instrument>): ID {
+/// Market-local collateral reservation backing the taker order.
+public fun taker_reservation_id<Instrument>(
+  fill: &Fill<Instrument>,
+): ReservationId {
   fill.taker_reservation_id
 }
 
@@ -193,6 +200,11 @@ public fun size<Instrument>(fill: &Fill<Instrument>): Size {
   fill.size
 }
 
+/// Whether this fill completely removed its resting maker order.
+public fun maker_fully_filled<Instrument>(fill: &Fill<Instrument>): bool {
+  fill.maker_fully_filled
+}
+
 // === Obligation Views ===
 
 /// Stable object ID of the market that produced this obligation.
@@ -209,10 +221,10 @@ public fun order_id<Instrument>(
   obligation.order_id
 }
 
-/// Opaque instrument-owned reservation backing the incoming order.
+/// Market-local collateral reservation backing the incoming order.
 public fun reservation_id<Instrument>(
   obligation: &FillObligation<Instrument>,
-): ID {
+): ReservationId {
   obligation.reservation_id
 }
 
@@ -269,10 +281,10 @@ public fun canceled_order_id<Instrument>(
   obligation.order_id
 }
 
-/// Opaque instrument-owned reservation backing the canceled order.
+/// Market-local collateral reservation backing the canceled order.
 public fun canceled_reservation_id<Instrument>(
   obligation: &CancelObligation<Instrument>,
-): ID {
+): ReservationId {
   obligation.reservation_id
 }
 
@@ -294,22 +306,33 @@ public(package) fun empty<Instrument>(): OrderBook<Instrument> {
   }
 }
 
-/// Match one positive limit order and return a non-droppable obligation.
-/// Aborts before commit on self-match, zero price/size, more than 32 maker
+/// Validate every user-controlled order boundary before collateral reservation
+/// or book mutation. Aborts on self-match, zero price/size, more than 32 maker
 /// fills, or a resting remainder on a full side.
+public(package) fun validate_limit_order<Instrument>(
+  orderbook: &OrderBook<Instrument>,
+  margin_account_id: ID,
+  side: Side,
+  price: Price,
+  size: Size,
+) {
+  assert!(!price.is_zero(), EZeroPrice);
+  assert!(!size.is_zero(), EZeroSize);
+  preflight(orderbook, margin_account_id, side, price, size);
+}
+
+/// Match one prevalidated limit order and return a non-droppable obligation.
+/// The package caller must invoke `validate_limit_order` before reserving
+/// collateral and entering this function.
 public(package) fun place_limit_order<Instrument>(
   orderbook: &mut OrderBook<Instrument>,
   market_id: ID,
   margin_account_id: ID,
-  reservation_id: ID,
+  reservation_id: ReservationId,
   side: Side,
   price: Price,
   size: Size,
 ): FillObligation<Instrument> {
-  assert!(!price.is_zero(), EZeroPrice);
-  assert!(!size.is_zero(), EZeroSize);
-  preflight(orderbook, margin_account_id, side, price, size);
-
   let order_id = orderbook.next_order_id;
   orderbook.next_order_id = order_id.next();
   let mut incoming = RestingOrder {
@@ -371,7 +394,7 @@ public(package) fun cancel_order<Instrument>(
     market_id,
     order_id: canceled.order_id.value(),
     margin_account_id,
-    reservation_id: canceled.reservation_id,
+    reservation_id: canceled.reservation_id.value(),
     is_bid: canceled.side.is_bid(),
     remaining_size: remaining_size.value(),
   });
@@ -505,6 +528,7 @@ fun fill_best<Instrument>(
   let fill_size = taker.unfilled_size().min(maker.unfilled_size());
   maker.filled_size = maker.filled_size.add(fill_size);
   taker.filled_size = taker.filled_size.add(fill_size);
+  let maker_fully_filled = maker.unfilled_size().is_zero();
 
   let fill = Fill {
     maker_order_id: maker.order_id,
@@ -516,6 +540,7 @@ fun fill_best<Instrument>(
     maker_side: maker.side,
     price: maker.price,
     size: fill_size,
+    maker_fully_filled,
   };
   event::emit(OrderFilled<Instrument> {
     schema_version: EVENT_SCHEMA_VERSION,
@@ -524,14 +549,15 @@ fun fill_best<Instrument>(
     taker_order_id: taker.order_id.value(),
     maker_margin_account_id: maker.margin_account_id,
     taker_margin_account_id: taker.margin_account_id,
-    maker_reservation_id: maker.reservation_id,
-    taker_reservation_id: taker.reservation_id,
+    maker_reservation_id: maker.reservation_id.value(),
+    taker_reservation_id: taker.reservation_id.value(),
     maker_is_bid: maker.side.is_bid(),
     price: maker.price.value(),
     size: fill_size.value(),
+    maker_fully_filled,
   });
 
-  if (maker.unfilled_size().is_zero()) {
+  if (maker_fully_filled) {
     makers.remove(0);
   };
   fill
@@ -547,7 +573,7 @@ fun rest<Instrument>(
     market_id,
     order_id: order.order_id.value(),
     margin_account_id: order.margin_account_id,
-    reservation_id: order.reservation_id,
+    reservation_id: order.reservation_id.value(),
     is_bid: order.side.is_bid(),
     price: order.price.value(),
     remaining_size: order.unfilled_size().value(),
@@ -587,7 +613,7 @@ fun unfilled_size<Instrument>(order: &RestingOrder<Instrument>): Size {
 public(package) fun fill_side_to_limit_for_testing<Instrument>(
   orderbook: &mut OrderBook<Instrument>,
   margin_account_id: ID,
-  reservation_id: ID,
+  reservation_id: ReservationId,
   side: Side,
 ) {
   let orders = side.match_side!(

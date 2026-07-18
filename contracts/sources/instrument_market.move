@@ -1,5 +1,6 @@
 module nth::instrument_market;
 
+use nth::collateral::{Self, ReservationId, Silo};
 use nth::margin::{Self, MarginAccount};
 use nth::matching::{
   Self,
@@ -10,10 +11,12 @@ use nth::matching::{
 };
 use nth::order::{Self, OrderId, Side};
 use nth::position::{Self, Position};
+use sui::coin;
 use sui::event;
 use sui::table::{Self, Table};
 use units::price::Price;
 use units::size::Size;
+use units::usdc_amount::{Self, UsdcAmount};
 
 // === Constants ===
 
@@ -41,13 +44,14 @@ const EWrongVersion: vector<u8> = b"market version is not supported";
 
 /// Generic matching and net-position state for one isolated instrument market.
 /// An instrument package stores this value inside its own shared market object
-/// alongside the collateral silo and instrument-specific lifecycle state.
+/// alongside its instrument-specific lifecycle state.
 public struct Market<phantom Instrument> has key, store {
   id: UID,
   version: u64,
   orderbook: OrderBook<Instrument>,
   positions: Table<ID, Position<Instrument>>,
   position_count: u64,
+  collateral: Silo<Instrument>,
 }
 
 // === Events ===
@@ -80,18 +84,71 @@ public fun new<Instrument>(
     orderbook: matching::empty(),
     positions: table::new(ctx),
     position_count: 0,
+    collateral: collateral::new(ctx),
   }
 }
 
+/// Move an exact USDC base-unit amount from the sender-owned margin account
+/// into this market's isolated free collateral.
+public fun deposit_collateral<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account: &mut MarginAccount,
+  amount: UsdcAmount,
+  _witness: &Instrument,
+  ctx: &mut TxContext,
+) {
+  market.assert_version();
+  assert!(
+    margin::verify_owner(margin_account, ctx.sender()),
+    EInvalidAccountOwner,
+  );
+  let market_id = object::id(market);
+  let margin_account_id = object::id(margin_account);
+  let coin = margin_account.withdraw(amount.value(), ctx);
+  collateral::deposit(
+    &mut market.collateral,
+    market_id,
+    margin_account_id,
+    coin::into_balance(coin),
+  );
+}
+
+/// Return an exact USDC base-unit amount from this market's free collateral to
+/// the sender-owned margin account. Reserved and position collateral cannot be
+/// withdrawn through this transition.
+public fun withdraw_collateral<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account: &mut MarginAccount,
+  amount: UsdcAmount,
+  _witness: &Instrument,
+  ctx: &mut TxContext,
+) {
+  market.assert_version();
+  assert!(
+    margin::verify_owner(margin_account, ctx.sender()),
+    EInvalidAccountOwner,
+  );
+  let market_id = object::id(market);
+  let margin_account_id = object::id(margin_account);
+  let balance = collateral::withdraw(
+    &mut market.collateral,
+    market_id,
+    margin_account_id,
+    amount,
+  );
+  margin_account.deposit(coin::from_balance(balance, ctx), ctx);
+}
+
 /// Match a positive limit order after verifying that the sender owns
-/// `margin_account`. `price` and `size` use the shared `10^6` scale.
+/// `margin_account`. `reservation_amount` is USDC base units; `price` and
+/// `size` use the shared `10^6` scale.
 ///
 /// Returns a non-droppable obligation that the instrument wrapper must settle
 /// and complete in the same transaction.
-public fun place_limit_order<Instrument>(
+public fun place_collateralized_limit_order<Instrument>(
   market: &mut Market<Instrument>,
   margin_account: &MarginAccount,
-  reservation_id: ID,
+  reservation_amount: UsdcAmount,
   _witness: &Instrument,
   side: Side,
   price: Price,
@@ -104,10 +161,24 @@ public fun place_limit_order<Instrument>(
     EInvalidAccountOwner,
   );
   let market_id = object::id(market);
+  let margin_account_id = object::id(margin_account);
+  matching::validate_limit_order(
+    &market.orderbook,
+    margin_account_id,
+    side,
+    price,
+    size,
+  );
+  let reservation_id = collateral::reserve(
+    &mut market.collateral,
+    market_id,
+    margin_account_id,
+    reservation_amount,
+  );
   matching::place_limit_order(
     &mut market.orderbook,
     market_id,
-    object::id(margin_account),
+    margin_account_id,
     reservation_id,
     side,
     price,
@@ -131,23 +202,32 @@ public fun cancel_order<Instrument>(
     EInvalidAccountOwner,
   );
   let market_id = object::id(market);
-  matching::cancel_order(
+  let obligation = matching::cancel_order(
     &mut market.orderbook,
     market_id,
     object::id(margin_account),
     side,
     order_id,
-  )
+  );
+  collateral::release(
+    &mut market.collateral,
+    market_id,
+    obligation.canceled_reservation_id(),
+  );
+  obligation
 }
 
-/// Apply both generic net-position transitions for the next fill and advance
-/// the obligation exactly once. Instrument-specific collateral and lifecycle
-/// logic can inspect `matching::next_fill` before calling this function.
+/// Consume instrument-calculated maker and taker USDC reservation amounts,
+/// apply both generic net-position transitions, and advance the obligation
+/// exactly once. Consumed USDC becomes position collateral.
 ///
-/// Aborts when the obligation belongs to another market or has no next fill.
-public fun settle_next<Instrument>(
+/// Aborts when the obligation belongs to another market, has no next fill, or
+/// either reservation is missing, foreign, or insufficient.
+public fun settle_next_with_collateral<Instrument>(
   market: &mut Market<Instrument>,
   obligation: &mut FillObligation<Instrument>,
+  maker_collateral: UsdcAmount,
+  taker_collateral: UsdcAmount,
   _witness: &Instrument,
 ): Fill<Instrument> {
   market.assert_version();
@@ -155,10 +235,36 @@ public fun settle_next<Instrument>(
   let fill = obligation.next_fill();
   let maker_account_id = fill.maker_margin_account_id();
   let taker_account_id = fill.taker_margin_account_id();
+  collateral::validate_consume(
+    &market.collateral,
+    fill.maker_reservation_id(),
+    maker_account_id,
+    maker_collateral,
+  );
+  collateral::validate_consume(
+    &market.collateral,
+    fill.taker_reservation_id(),
+    taker_account_id,
+    taker_collateral,
+  );
   market.ensure_position(maker_account_id);
   market.ensure_position(taker_account_id);
   let market_id = object::id(market);
 
+  collateral::consume(
+    &mut market.collateral,
+    market_id,
+    fill.maker_reservation_id(),
+    maker_account_id,
+    maker_collateral,
+  );
+  collateral::consume(
+    &mut market.collateral,
+    market_id,
+    fill.taker_reservation_id(),
+    taker_account_id,
+    taker_collateral,
+  );
   position::apply_trade(
     &mut market.positions[maker_account_id],
     market_id,
@@ -179,6 +285,23 @@ public fun settle_next<Instrument>(
     taker_side,
     fill.size(),
   );
+  if (fill.maker_fully_filled()) {
+    collateral::release(
+      &mut market.collateral,
+      market_id,
+      fill.maker_reservation_id(),
+    );
+  };
+  if (
+    obligation.settled_fill_count() + 1 == obligation.fill_count() &&
+    obligation.resting_size().is_zero()
+  ) {
+    collateral::release(
+      &mut market.collateral,
+      market_id,
+      fill.taker_reservation_id(),
+    );
+  };
   matching::advance(obligation);
   fill
 }
@@ -199,8 +322,8 @@ public fun complete<Instrument>(
   matching::destroy(obligation);
 }
 
-/// Consume a cancellation after the instrument wrapper releases the associated
-/// reservation. Aborts when the cancellation belongs to another market.
+/// Consume a cancellation after `cancel_order` atomically released all
+/// unconsumed reserved USDC. Aborts when it belongs to another market.
 public fun complete_cancel<Instrument>(
   market: &Market<Instrument>,
   obligation: CancelObligation<Instrument>,
@@ -264,6 +387,47 @@ public fun ask_count<Instrument>(market: &Market<Instrument>): u64 {
   matching::ask_count(&market.orderbook)
 }
 
+/// Free USDC base units available for withdrawal or new reservations.
+public fun free_collateral<Instrument>(
+  market: &Market<Instrument>,
+  margin_account_id: ID,
+): UsdcAmount {
+  collateral::free(&market.collateral, margin_account_id)
+}
+
+/// USDC base units backing the account's current net position.
+public fun position_collateral<Instrument>(
+  market: &Market<Instrument>,
+  margin_account_id: ID,
+): UsdcAmount {
+  collateral::position(&market.collateral, margin_account_id)
+}
+
+/// Whether this market owns the reservation.
+public fun has_reservation<Instrument>(
+  market: &Market<Instrument>,
+  reservation_id: ReservationId,
+): bool {
+  collateral::has_reservation(&market.collateral, reservation_id)
+}
+
+/// Remaining USDC base units in one market-local order reservation.
+///
+/// Aborts when this market does not own `reservation_id`.
+public fun reserved_collateral<Instrument>(
+  market: &Market<Instrument>,
+  reservation_id: ReservationId,
+): UsdcAmount {
+  collateral::reserved(&market.collateral, reservation_id)
+}
+
+/// Total USDC base units held across free, reserved, and position collateral.
+public fun total_collateral<Instrument>(
+  market: &Market<Instrument>,
+): UsdcAmount {
+  collateral::total(&market.collateral)
+}
+
 // === Private Functions ===
 
 fun ensure_position<Instrument>(
@@ -292,14 +456,62 @@ fun assert_version<Instrument>(market: &Market<Instrument>) {
 
 // === Test-Only Functions ===
 
+/// Test-only zero-collateral placement preserving matching-kernel fixtures.
+#[test_only]
+public fun place_limit_order<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account: &MarginAccount,
+  _reservation_id: ID,
+  witness: &Instrument,
+  side: Side,
+  price: Price,
+  size: Size,
+  ctx: &TxContext,
+): FillObligation<Instrument> {
+  place_collateralized_limit_order(
+    market,
+    margin_account,
+    usdc_amount::usdc(0),
+    witness,
+    side,
+    price,
+    size,
+    ctx,
+  )
+}
+
+/// Test-only settlement for matching fixtures whose instruments require no
+/// collateral.
+#[test_only]
+public fun settle_next<Instrument>(
+  market: &mut Market<Instrument>,
+  obligation: &mut FillObligation<Instrument>,
+  witness: &Instrument,
+): Fill<Instrument> {
+  settle_next_with_collateral(
+    market,
+    obligation,
+    usdc_amount::usdc(0),
+    usdc_amount::usdc(0),
+    witness,
+  )
+}
+
 /// Populate one book side to its explicit bound without emitting order events.
 #[test_only]
 public fun fill_side_to_limit_for_testing<Instrument>(
   market: &mut Market<Instrument>,
   margin_account_id: ID,
-  reservation_id: ID,
+  _reservation_id: ID,
   side: Side,
 ) {
+  let market_id = object::id(market);
+  let reservation_id = collateral::reserve(
+    &mut market.collateral,
+    market_id,
+    margin_account_id,
+    usdc_amount::usdc(0),
+  );
   matching::fill_side_to_limit_for_testing(
     &mut market.orderbook,
     margin_account_id,

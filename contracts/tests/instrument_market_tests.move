@@ -7,9 +7,12 @@ use nth::matching;
 use nth::order;
 use nth::position;
 use std::unit_test;
+use sui::coin;
 use sui::test_scenario;
 use units::price;
 use units::size;
+use units::usdc_amount;
+use usdc::usdc::USDC;
 
 const ALICE: address = @0xA11CE;
 const MAX_U64: u64 = 18_446_744_073_709_551_615;
@@ -653,6 +656,7 @@ fun partial_fill_cancellation_releases_only_the_remainder() {
     test.ctx(),
   );
   let ask_id = ask.order_id();
+  let ask_reservation_id = ask.reservation_id();
   instrument_market::complete(&market, ask, &witness);
   assert!(!instrument_market::has_position(&market, maker_id), EUnexpectedValue);
 
@@ -678,7 +682,7 @@ fun partial_fill_cancellation_releases_only_the_remainder() {
     test.ctx(),
   );
   assert_eq!(canceled.canceled_remaining_size().value(), 6);
-  assert_eq!(canceled.canceled_reservation_id(), maker_id);
+  assert!(canceled.canceled_reservation_id().eq(ask_reservation_id), EUnexpectedValue);
   instrument_market::complete_cancel(&market, canceled, &witness);
   assert_eq!(instrument_market::ask_count(&market), 0);
   assert_eq!(instrument_market::position_state(&market, maker_id), position::short());
@@ -687,5 +691,412 @@ fun partial_fill_cancellation_releases_only_the_remainder() {
   margin::keep(maker, test.ctx());
   margin::keep(taker, test.ctx());
   transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun collateral_round_trip_preserves_wallet_and_market_total() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(100, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(60),
+    &witness,
+    test.ctx(),
+  );
+  assert_eq!(account.balance(), 40);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 60);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 60);
+
+  instrument_market::withdraw_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(25),
+    &witness,
+    test.ctx(),
+  );
+  assert_eq!(account.balance(), 65);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 35);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 35);
+
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun order_reservation_changes_collateral_but_not_position() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(60, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(60),
+    &witness,
+    test.ctx(),
+  );
+
+  let ask = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &account,
+    usdc_amount::usdc(30),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  let order_id = ask.order_id();
+  let reservation_id = ask.reservation_id();
+  instrument_market::complete(&mut market, ask, &witness);
+
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 30);
+  assert_eq!(
+    instrument_market::reserved_collateral(&market, reservation_id).value(),
+    30,
+  );
+  assert!(!instrument_market::has_position(&market, account_id), EUnexpectedValue);
+
+  let canceled = instrument_market::cancel_order(
+    &mut market,
+    &account,
+    &witness,
+    order::ask(),
+    order_id,
+    test.ctx(),
+  );
+  instrument_market::complete_cancel(&mut market, canceled, &witness);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 60);
+  assert!(
+    !instrument_market::has_reservation(&market, reservation_id),
+    EUnexpectedValue,
+  );
+
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun fill_consumes_reservations_into_isolated_position_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut maker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(50, test.ctx()),
+    test.ctx(),
+  );
+  let mut taker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(50, test.ctx()),
+    test.ctx(),
+  );
+  let maker_id = object::id(&maker);
+  let taker_id = object::id(&taker);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut maker,
+    usdc_amount::usdc(50),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut taker,
+    usdc_amount::usdc(50),
+    &witness,
+    test.ctx(),
+  );
+
+  let ask = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &maker,
+    usdc_amount::usdc(10),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&mut market, ask, &witness);
+  let mut bid = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &taker,
+    usdc_amount::usdc(10),
+    &witness,
+    order::bid(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::settle_next_with_collateral(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(10),
+    usdc_amount::usdc(10),
+    &witness,
+  );
+  instrument_market::complete(&mut market, bid, &witness);
+
+  assert_eq!(instrument_market::position_collateral(&market, maker_id).value(), 10);
+  assert_eq!(instrument_market::position_collateral(&market, taker_id).value(), 10);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 100);
+
+  margin::keep(maker, test.ctx());
+  margin::keep(taker, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun partial_fill_consumes_reserve_and_cancel_releases_only_remainder() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut maker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(50, test.ctx()),
+    test.ctx(),
+  );
+  let mut taker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(50, test.ctx()),
+    test.ctx(),
+  );
+  let maker_id = object::id(&maker);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut maker,
+    usdc_amount::usdc(50),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut taker,
+    usdc_amount::usdc(50),
+    &witness,
+    test.ctx(),
+  );
+
+  let ask = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &maker,
+    usdc_amount::usdc(10),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  let ask_id = ask.order_id();
+  let maker_reservation_id = ask.reservation_id();
+  instrument_market::complete(&market, ask, &witness);
+  let mut bid = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &taker,
+    usdc_amount::usdc(4),
+    &witness,
+    order::bid(),
+    price::price(100),
+    size::size(4),
+    test.ctx(),
+  );
+  instrument_market::settle_next_with_collateral(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(4),
+    usdc_amount::usdc(4),
+    &witness,
+  );
+  instrument_market::complete(&market, bid, &witness);
+
+  assert_eq!(
+    instrument_market::reserved_collateral(&market, maker_reservation_id).value(),
+    6,
+  );
+  assert_eq!(instrument_market::free_collateral(&market, maker_id).value(), 40);
+  assert_eq!(instrument_market::position_collateral(&market, maker_id).value(), 4);
+  let canceled = instrument_market::cancel_order(
+    &mut market,
+    &maker,
+    &witness,
+    order::ask(),
+    ask_id,
+    test.ctx(),
+  );
+  instrument_market::complete_cancel(&market, canceled, &witness);
+  assert!(
+    !instrument_market::has_reservation(&market, maker_reservation_id),
+    EUnexpectedValue,
+  );
+  assert_eq!(instrument_market::free_collateral(&market, maker_id).value(), 46);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 100);
+
+  margin::keep(maker, test.ctx());
+  margin::keep(taker, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientReservedCollateral)]
+fun fill_cannot_consume_more_than_order_reserved() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut maker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(5, test.ctx()),
+    test.ctx(),
+  );
+  let mut taker = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut maker,
+    usdc_amount::usdc(5),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut taker,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  let ask = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &maker,
+    usdc_amount::usdc(5),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, ask, &witness);
+  let mut bid = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &taker,
+    usdc_amount::usdc(10),
+    &witness,
+    order::bid(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::settle_next_with_collateral(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(6),
+    usdc_amount::usdc(10),
+    &witness,
+  );
+  instrument_market::complete(&market, bid, &witness);
+  margin::keep(maker, test.ctx());
+  margin::keep(taker, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientFreeCollateral)]
+fun order_cannot_reserve_more_than_market_free_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  let obligation = instrument_market::place_collateralized_limit_order(
+    &mut market,
+    &account,
+    usdc_amount::usdc(1),
+    &witness,
+    order::bid(),
+    price::price(1),
+    size::size(1),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, obligation, &witness);
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EZeroDeposit)]
+fun zero_market_collateral_deposit_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new(test.ctx());
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(0),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EZeroWithdrawal)]
+fun zero_market_collateral_withdrawal_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new(test.ctx());
+  instrument_market::withdraw_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(0),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientWithdrawableCollateral)]
+fun one_market_cannot_withdraw_another_markets_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut funded_market = instrument_market::new(&witness, test.ctx());
+  let mut empty_market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut funded_market,
+    &mut account,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::withdraw_collateral(
+    &mut empty_market,
+    &mut account,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(funded_market);
+  transfer::public_share_object(empty_market);
   test.end();
 }
