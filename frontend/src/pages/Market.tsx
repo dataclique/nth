@@ -9,6 +9,7 @@ import {
 } from "../api"
 import AccountPanel from "../components/AccountPanel"
 import CandleChart from "../components/CandleChart"
+import CollateralPanel from "../components/CollateralPanel"
 import OrderBook from "../components/OrderBook"
 import OrderEntry from "../components/OrderEntry"
 import RiskBadge, { instrumentName } from "../components/RiskBadge"
@@ -110,6 +111,10 @@ export default function Market() {
                   />
                 </label>
               </div>
+              <CollateralPanel
+                market={summary()}
+                marginAccountId={marginAccountId()}
+              />
               <Show when={summary().instrument.instrument !== "vault"}>
                 <OrderEntry
                   market={summary()}
