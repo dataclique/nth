@@ -273,6 +273,124 @@ fun external_claim_instrument_issues_and_redeems_through_the_kernel() {
   test.end();
 }
 
+/// Realistically scaled linear market: 8 units of exposure at 100 USDC, the
+/// short backed by 300 USDC and the long by only 100 USDC of position
+/// collateral. Maintenance margin at the 100 USDC mark is 200 USDC, so the
+/// long is liquidatable and the short is safe.
+fun leveraged_linear_pair(
+  test: &mut test_scenario::Scenario,
+): (linear::LinearMarket, nth::margin::MarginAccount, nth::margin::MarginAccount) {
+  let mut short_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(300_000_000, test.ctx()),
+    test.ctx(),
+  );
+  let mut long_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(100_000_000, test.ctx()),
+    test.ctx(),
+  );
+  let mut market = linear::new(test.ctx());
+  linear::deposit_collateral(
+    &mut market,
+    &mut short_account,
+    usdc_amount::usdc(300_000_000),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut long_account,
+    usdc_amount::usdc(100_000_000),
+    test.ctx(),
+  );
+
+  let ask = linear::place_limit_order(
+    &mut market,
+    &short_account,
+    usdc_amount::usdc(300_000_000),
+    order::ask(),
+    price::price(100_000_000),
+    size::size(8_000_000),
+    test.ctx(),
+  );
+  linear::complete(&market, ask);
+  let mut bid = linear::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(100_000_000),
+    order::bid(),
+    price::price(100_000_000),
+    size::size(8_000_000),
+    test.ctx(),
+  );
+  linear::settle_next(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(300_000_000),
+    usdc_amount::usdc(100_000_000),
+  );
+  linear::complete(&market, bid);
+  (market, long_account, short_account)
+}
+
+#[test]
+fun liquidation_uses_standard_forced_close() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    leveraged_linear_pair(&mut test);
+  let long_id = object::id(&long_account);
+  let short_id = object::id(&short_account);
+  let keeper = margin::new(test.ctx());
+  let keeper_id = object::id(&keeper);
+
+  linear::liquidate(
+    &mut market,
+    long_id,
+    price::price(100_000_000),
+    keeper_id,
+    usdc_amount::usdc(10_000_000),
+  );
+
+  assert_eq!(linear::position_state(&market, long_id), position::flat());
+  assert_eq!(linear::position_size(&market, long_id).value(), 0);
+  assert_eq!(linear::position_collateral(&market, long_id).value(), 0);
+  assert_eq!(linear::free_collateral(&market, long_id).value(), 90_000_000);
+  assert_eq!(linear::free_collateral(&market, keeper_id).value(), 10_000_000);
+  assert_eq!(linear::position_state(&market, short_id), position::short());
+  assert_eq!(
+    linear::position_collateral(&market, short_id).value(),
+    300_000_000,
+  );
+  assert_eq!(linear::total_collateral(&market).value(), 400_000_000);
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  margin::keep(keeper, test.ctx());
+  linear::share(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = linear::EPositionSafe)]
+fun safe_position_cannot_be_forced_closed() {
+  let mut test = test_scenario::begin(ALICE);
+  let (mut market, long_account, short_account) =
+    leveraged_linear_pair(&mut test);
+  let short_id = object::id(&short_account);
+  let keeper = margin::new(test.ctx());
+
+  linear::liquidate(
+    &mut market,
+    short_id,
+    price::price(100_000_000),
+    object::id(&keeper),
+    usdc_amount::usdc(10_000_000),
+  );
+
+  margin::keep(long_account, test.ctx());
+  margin::keep(short_account, test.ctx());
+  margin::keep(keeper, test.ctx());
+  linear::share(market);
+  test.end();
+}
+
 fun expired_position_pair(
   test: &mut test_scenario::Scenario,
 ): (

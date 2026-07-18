@@ -27,6 +27,18 @@ const EInsufficientLongClaim: vector<u8> =
 #[error]
 const EZeroClaimSize: vector<u8> = b"claim size must be positive";
 
+#[error]
+const ENoExposureToForceReduce: vector<u8> =
+  b"forced reduction requires an open position";
+
+#[error]
+const EForcedReductionExceedsPosition: vector<u8> =
+  b"forced reduction exceeds the account's net position";
+
+#[error]
+const EZeroForcedReductionSize: vector<u8> =
+  b"forced reduction size must be positive";
+
 // === Structs ===
 
 /// The only representable net exposure states for one account in one market.
@@ -208,6 +220,27 @@ public(package) fun destroy<Instrument>(position: Position<Instrument>) {
   let Position { account_id: _, exposure: _ } = position;
 }
 
+/// Reduce an open long or short exposure by `reduce_size` without flipping,
+/// becoming flat at equality. Aborts on zero size, flat exposure, or a
+/// reduction larger than the position.
+public(package) fun force_reduce<Instrument>(
+  position: &mut Position<Instrument>,
+  reduce_size: Size,
+) {
+  assert!(!reduce_size.is_zero(), EZeroForcedReductionSize);
+  position.exposure = match (position.exposure) {
+    Exposure::Flat => abort ENoExposureToForceReduce,
+    Exposure::Long { size } => reduced_long(size, reduce_size),
+    Exposure::Short { size } => reduced_short(size, reduce_size),
+  };
+}
+
+/// Preserve a named position-module abort when a market has no materialized
+/// position for a forced reduction.
+public(package) fun assert_force_reducible(materialized: bool) {
+  assert!(materialized, ENoExposureToForceReduce);
+}
+
 /// Preserve a named position-module abort when a market has no materialized
 /// positive claim for an account.
 public(package) fun assert_long_claim_materialized(materialized: bool) {
@@ -261,6 +294,24 @@ fun apply_sell(exposure: Exposure, trade_size: Size): Exposure {
         }
       }
     },
+  }
+}
+
+fun reduced_long(size: Size, reduce_size: Size): Exposure {
+  assert!(!size.lt(reduce_size), EForcedReductionExceedsPosition);
+  if (size.eq(reduce_size)) {
+    Exposure::Flat
+  } else {
+    Exposure::Long { size: size.sub(reduce_size) }
+  }
+}
+
+fun reduced_short(size: Size, reduce_size: Size): Exposure {
+  assert!(!size.lt(reduce_size), EForcedReductionExceedsPosition);
+  if (size.eq(reduce_size)) {
+    Exposure::Flat
+  } else {
+    Exposure::Short { size: size.sub(reduce_size) }
   }
 }
 

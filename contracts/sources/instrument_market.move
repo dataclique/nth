@@ -125,6 +125,19 @@ public struct PositionSettled<phantom Instrument> has copy, drop {
   released_collateral: u64,
 }
 
+/// Emitted when an instrument force-reduces one account's exposure through a
+/// proven distress path. State codes are flat `0`, long `1`, and short `2`;
+/// sizes use the shared `10^6` scale.
+public struct PositionForceReduced<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+  margin_account_id: ID,
+  reduced_size: u64,
+  current_state: u8,
+  current_size: u64,
+  released_collateral: u64,
+}
+
 /// Emitted when collateral moves between accounts without changing exposure.
 public struct CarryApplied<phantom Instrument> has copy, drop {
   schema_version: u16,
@@ -227,6 +240,53 @@ public fun settle_terminal_position<Instrument>(
     margin_account_id,
     previous_state,
     previous_size,
+    released_collateral: released_collateral.value(),
+  });
+}
+
+/// Force-reduce one account's open exposure by `reduce_size` through the
+/// instrument's proven distress path — liquidation, backstop transfer, or
+/// another explicitly defined trigger the implementation must satisfy before
+/// calling. The reduction cannot flip exposure; equality closes to flat.
+/// `released_collateral` moves from the account's position collateral back to
+/// its free collateral. Penalties and backstop transfers compose through
+/// `apply_carry` before this transition. No owner check: distress transitions
+/// are involuntary by definition, and authority comes from the private
+/// witness scoped to this market.
+public fun force_reduce_position<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account_id: ID,
+  reduce_size: Size,
+  released_collateral: UsdcAmount,
+  _witness: &Instrument,
+) {
+  market.assert_version();
+  position::assert_force_reducible(
+    market.positions.contains(margin_account_id),
+  );
+  let market_id = object::id(market);
+  collateral::validate_position(
+    &market.collateral,
+    margin_account_id,
+    released_collateral,
+  );
+  position::force_reduce(
+    &mut market.positions[margin_account_id],
+    reduce_size,
+  );
+  collateral::move_position_to_free(
+    &mut market.collateral,
+    margin_account_id,
+    released_collateral,
+  );
+
+  event::emit(PositionForceReduced<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    margin_account_id,
+    reduced_size: reduce_size.value(),
+    current_state: position::state(&market.positions[margin_account_id]),
+    current_size: position::size(&market.positions[margin_account_id]).value(),
     released_collateral: released_collateral.value(),
   });
 }

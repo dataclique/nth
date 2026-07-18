@@ -5,8 +5,20 @@ use nth::margin::MarginAccount;
 use nth::matching::{CancelObligation, Fill, FillObligation};
 use nth::order::{OrderId, Side};
 use units::price::Price;
+use units::scaling;
 use units::size::Size;
-use units::usdc_amount::UsdcAmount;
+use units::usdc_amount::{Self, UsdcAmount};
+
+// === Constants ===
+
+/// Maintenance margin as a plain percent of notional at the mark price.
+const MAINTENANCE_MARGIN_PERCENT: u64 = 25;
+
+// === Errors ===
+
+#[error]
+const EPositionSafe: vector<u8> =
+  b"position collateral satisfies its maintenance margin";
 
 // === Structs ===
 
@@ -118,6 +130,56 @@ public fun settle_funding(
   );
 }
 
+/// Permissionlessly liquidate one under-collateralized position. This
+/// instrument's trigger: position collateral strictly below the maintenance
+/// margin at `mark_price`. A safe position aborts before any state change.
+/// The keeper penalty moves from the liquidated account's position collateral
+/// to `keeper_account_id`'s free collateral; the remainder returns to the
+/// liquidated account through the standard forced-settlement transition.
+public fun liquidate(
+  market: &mut LinearMarket,
+  liquidated_account_id: ID,
+  mark_price: Price,
+  keeper_account_id: ID,
+  keeper_penalty: UsdcAmount,
+) {
+  let witness = witness();
+  let size = instrument_market::position_size(
+    &market.kernel,
+    liquidated_account_id,
+  );
+  let collateral = instrument_market::position_collateral(
+    &market.kernel,
+    liquidated_account_id,
+  );
+  let maintenance = maintenance_margin(mark_price, size);
+  assert!(collateral.lt(maintenance), EPositionSafe);
+
+  if (keeper_penalty.value() > 0) {
+    instrument_market::apply_carry(
+      &mut market.kernel,
+      liquidated_account_id,
+      keeper_account_id,
+      keeper_penalty,
+      0,
+      true,
+      false,
+      &witness,
+    );
+  };
+  let remainder = instrument_market::position_collateral(
+    &market.kernel,
+    liquidated_account_id,
+  );
+  instrument_market::force_reduce_position(
+    &mut market.kernel,
+    liquidated_account_id,
+    size,
+    remainder,
+    &witness,
+  );
+}
+
 /// Apply both generic net-position transitions for the next linear fill.
 public fun settle_next(
   market: &mut LinearMarket,
@@ -195,6 +257,17 @@ public fun total_collateral(market: &LinearMarket): UsdcAmount {
 }
 
 // === Private Functions ===
+
+/// This instrument's maintenance margin: a plain percent of notional at the
+/// mark price, computed in u128 so realistic scaled inputs cannot overflow.
+fun maintenance_margin(mark_price: Price, size: Size): UsdcAmount {
+  let notional =
+    (size.value() as u128) * (mark_price.value() as u128)
+      / (scaling::float_scaling() as u128);
+  usdc_amount::usdc_from_u128(
+    notional * (MAINTENANCE_MARGIN_PERCENT as u128) / 100,
+  )
+}
 
 fun witness(): Linear {
   Linear { private: true }

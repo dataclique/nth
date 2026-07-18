@@ -286,6 +286,18 @@ that its trigger is satisfied and computes penalties and payouts. The standard
 enforces market identity, authorized transition shape, available collateral,
 exact accounting, and event emission.
 
+The kernel exposes this as `instrument_market::force_reduce_position`. It
+reduces an open long or short exposure without flipping — equality closes to
+flat — and moves an instrument-calculated amount of the account's position
+collateral back to its free collateral, emitting `PositionForceReduced`. There
+is deliberately no owner check: distress transitions are involuntary, and
+authority comes from the private witness scoped to one market. Penalties and
+backstop transfers compose through `apply_carry` before the reduction, so every
+cash flow keeps an explicit source and recipient. Proving the trigger — margin
+threshold, oracle evidence, dispute rules — remains entirely the
+implementation's responsibility, and a safe position must abort in the
+implementation before any state changes.
+
 Liquidation is a lifecycle capability, not an orderbook responsibility.
 
 ### Instrument responsibility

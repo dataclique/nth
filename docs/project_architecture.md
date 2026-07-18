@@ -80,11 +80,23 @@ accounts before settling them, so the standard never computes a payout.
 resting orders per call, releasing each reservation to its own order owner, so
 keepers can drain the book without owner signatures.
 
+Forced settlement uses `instrument_market::force_reduce_position` to shrink or
+close an open exposure through an instrument-proven distress path. The reduction
+can never flip a position; equality closes to flat, and the released position
+collateral returns to the same account's free bucket with a
+`PositionForceReduced` event. The transition has no owner check — distress is
+involuntary and authority comes from the market-scoped witness — while penalties
+and backstop transfers compose through carry so every cash flow names its
+source. The trigger proof (margin threshold, oracle evidence) stays in the
+implementation, which must abort on a safe position before touching state.
+
 `contracts/conformance` contains independent linear and expiring wrappers that
 compile against the public kernel boundary. The expiring wrapper binds its
 expiry value exactly once, terminates the kernel market, and settles long/short
-pairs through the standard transitions. The full design, lifecycle scope, and
-remaining forced-settlement conformance work are specified in
+pairs through the standard transitions; the linear wrapper liquidates
+under-collateralized positions through the forced-settlement transition after
+proving its maintenance-margin trigger and paying a keeper penalty via carry.
+The full design and remaining lifecycle scope are specified in
 [ADR 02](../adrs/02-composable-instrument-standard.md).
 
 ### Pool

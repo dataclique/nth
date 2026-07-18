@@ -2043,6 +2043,183 @@ fun terminal_cleanup_requires_terminal_market() {
   test.end();
 }
 
+fun claim_market_with_position(
+  test: &mut test_scenario::Scenario,
+  deposit: u64,
+  claim_collateral: u64,
+  claim_size: u64,
+): (Market<Linear>, MarginAccount) {
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(deposit, test.ctx()),
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(deposit),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &account,
+    usdc_amount::usdc(claim_collateral),
+    size::size(claim_size),
+    &witness,
+    test.ctx(),
+  );
+  (market, account)
+}
+
+#[test]
+fun forced_reduction_reduces_then_closes_exposure_exactly() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, account) = claim_market_with_position(&mut test, 10, 6, 6);
+  let account_id = object::id(&account);
+
+  instrument_market::force_reduce_position(
+    &mut market,
+    account_id,
+    size::size(2),
+    usdc_amount::usdc(2),
+    &witness,
+  );
+  assert_eq!(
+    instrument_market::position_state(&market, account_id),
+    position::long(),
+  );
+  assert_eq!(instrument_market::position_size(&market, account_id).value(), 4);
+  assert_eq!(instrument_market::free_collateral(&market, account_id).value(), 6);
+  assert_eq!(
+    instrument_market::position_collateral(&market, account_id).value(),
+    4,
+  );
+
+  instrument_market::force_reduce_position(
+    &mut market,
+    account_id,
+    size::size(4),
+    usdc_amount::usdc(4),
+    &witness,
+  );
+  assert_eq!(
+    instrument_market::position_state(&market, account_id),
+    position::flat(),
+  );
+  assert_eq!(instrument_market::position_size(&market, account_id).value(), 0);
+  assert_eq!(
+    instrument_market::free_collateral(&market, account_id).value(),
+    10,
+  );
+  assert_eq!(
+    instrument_market::position_collateral(&market, account_id).value(),
+    0,
+  );
+  assert_eq!(instrument_market::total_collateral(&market).value(), 10);
+
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::EForcedReductionExceedsPosition)]
+fun forced_reduction_cannot_exceed_position() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, account) = claim_market_with_position(&mut test, 6, 6, 6);
+  instrument_market::force_reduce_position(
+    &mut market,
+    object::id(&account),
+    size::size(7),
+    usdc_amount::usdc(0),
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::ENoExposureToForceReduce)]
+fun forced_reduction_cannot_apply_to_flat_exposure() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, account) = claim_market_with_position(&mut test, 6, 6, 6);
+  let account_id = object::id(&account);
+  instrument_market::force_reduce_position(
+    &mut market,
+    account_id,
+    size::size(6),
+    usdc_amount::usdc(6),
+    &witness,
+  );
+  instrument_market::force_reduce_position(
+    &mut market,
+    account_id,
+    size::size(1),
+    usdc_amount::usdc(0),
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::ENoExposureToForceReduce)]
+fun one_market_cannot_force_reduce_another_markets_position() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut funded, account) = claim_market_with_position(&mut test, 6, 6, 6);
+  let mut empty = instrument_market::new(&witness, test.ctx());
+  instrument_market::force_reduce_position(
+    &mut empty,
+    object::id(&account),
+    size::size(1),
+    usdc_amount::usdc(0),
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(funded);
+  transfer::public_share_object(empty);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientPositionCollateral)]
+fun forced_reduction_cannot_release_unavailable_position_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, account) = claim_market_with_position(&mut test, 6, 4, 6);
+  instrument_market::force_reduce_position(
+    &mut market,
+    object::id(&account),
+    size::size(6),
+    usdc_amount::usdc(5),
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::position::EZeroForcedReductionSize)]
+fun zero_forced_reduction_size_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let (mut market, account) = claim_market_with_position(&mut test, 6, 6, 6);
+  instrument_market::force_reduce_position(
+    &mut market,
+    object::id(&account),
+    size::size(0),
+    usdc_amount::usdc(0),
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
 #[test]
 fun terminal_cleanup_respects_explicit_bound() {
   let mut test = test_scenario::begin(ALICE);
