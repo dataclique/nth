@@ -162,6 +162,14 @@ once each: shorts carry their payoff into a designated settlement-reserve
 account, longs draw the same amount out (retrying while the reserve is
 unfunded), and the terminal transition releases every remaining balance.
 
+`options::american` reuses the same market mechanics and adds holder-initiated
+early exercise: before expiry a long holder exercises any part of its position
+at a fresh underlying price against any short it names. The clamped intrinsic
+value carries from the assigned short's escrow to the holder, the short's excess
+escrow for the exercised size releases pro rata, and both exposures reduce
+through the standard's forced-settlement transition — the instrument-defined
+trigger is the holder's signature plus a valid assignment rather than distress.
+
 ### Mark price and PriceCap (perpetual)
 
 Creating a perpetual market mints a `PriceCap` and returns it to the caller, who
