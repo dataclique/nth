@@ -454,6 +454,28 @@ public(package) fun ask_count<Instrument>(
   orderbook.asks.length()
 }
 
+/// Highest resting bid price, `none` when no bids rest.
+public(package) fun best_bid_price<Instrument>(
+  orderbook: &OrderBook<Instrument>,
+): Option<Price> {
+  if (orderbook.bids.is_empty()) {
+    option::none()
+  } else {
+    option::some(orderbook.bids[0].price)
+  }
+}
+
+/// Lowest resting ask price, `none` when no asks rest.
+public(package) fun best_ask_price<Instrument>(
+  orderbook: &OrderBook<Instrument>,
+): Option<Price> {
+  if (orderbook.asks.is_empty()) {
+    option::none()
+  } else {
+    option::some(orderbook.asks[0].price)
+  }
+}
+
 // === Private Functions ===
 
 fun remove_resting_at<Instrument>(

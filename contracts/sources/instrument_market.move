@@ -861,6 +861,21 @@ public fun ask_count<Instrument>(market: &Market<Instrument>): u64 {
   matching::ask_count(&market.orderbook)
 }
 
+/// Highest resting bid price, `none` when no bids rest. Instruments derive
+/// book-relative quantities (mid, funding divergence) from these views.
+public fun best_bid_price<Instrument>(
+  market: &Market<Instrument>,
+): Option<Price> {
+  matching::best_bid_price(&market.orderbook)
+}
+
+/// Lowest resting ask price, `none` when no asks rest.
+public fun best_ask_price<Instrument>(
+  market: &Market<Instrument>,
+): Option<Price> {
+  matching::best_ask_price(&market.orderbook)
+}
+
 /// Free USDC base units available for withdrawal or new reservations.
 public fun free_collateral<Instrument>(
   market: &Market<Instrument>,

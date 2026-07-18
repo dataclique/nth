@@ -2577,3 +2577,72 @@ fun terminal_cleanup_respects_explicit_bound() {
   transfer::public_share_object(market);
   test.end();
 }
+
+#[test]
+fun best_prices_track_the_front_of_each_side() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let account = margin::new(test.ctx());
+  let account_id = object::id(&account);
+  assert_eq!(instrument_market::best_bid_price(&market).is_none(), true);
+  assert_eq!(instrument_market::best_ask_price(&market).is_none(), true);
+
+  let high_ask = instrument_market::place_limit_order(
+    &mut market,
+    &account,
+    account_id,
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, high_ask, &witness);
+  let low_ask = instrument_market::place_limit_order(
+    &mut market,
+    &account,
+    account_id,
+    &witness,
+    order::ask(),
+    price::price(90),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, low_ask, &witness);
+  let low_bid = instrument_market::place_limit_order(
+    &mut market,
+    &account,
+    account_id,
+    &witness,
+    order::bid(),
+    price::price(80),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, low_bid, &witness);
+  let high_bid = instrument_market::place_limit_order(
+    &mut market,
+    &account,
+    account_id,
+    &witness,
+    order::bid(),
+    price::price(85),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::complete(&market, high_bid, &witness);
+
+  assert_eq!(
+    instrument_market::best_ask_price(&market).destroy_some().value(),
+    90,
+  );
+  assert_eq!(
+    instrument_market::best_bid_price(&market).destroy_some().value(),
+    85,
+  );
+
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
