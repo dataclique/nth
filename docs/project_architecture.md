@@ -61,6 +61,12 @@ minting or destroying USDC, and emits `ClaimIssued` / `ClaimRedeemed` events.
 Issuance requires a positive collateral amount; redemption may release zero
 collateral when the instrument reports no realizable assets.
 
+Directed carry uses `instrument_market::apply_carry` to move free or position
+collateral between accounts in one market without changing net exposure. The
+instrument chooses payer, receiver, amount, period key, and bucket sides; the
+standard conserves USDC, rejects zero or self transfers, and emits
+`CarryApplied`. Period idempotence stays with the instrument.
+
 `contracts/conformance` contains independent linear and expiring wrappers that
 compile against the public kernel boundary. The full design, lifecycle scope,
 and remaining directed-cash-flow conformance work are specified in

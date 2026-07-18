@@ -25,6 +25,14 @@ const EInsufficientPositionCollateral: vector<u8> =
   b"claim redemption exceeds the account's position collateral";
 
 #[error]
+const EZeroCarryAmount: vector<u8> =
+  b"carry transfer amount must be positive";
+
+#[error]
+const ESelfCarry: vector<u8> =
+  b"carry cannot transfer collateral to the same margin account";
+
+#[error]
 const EReservationNotFound: vector<u8> =
   b"order collateral reservation does not exist";
 
@@ -333,6 +341,38 @@ public(package) fun move_position_to_free<Instrument>(
       .split(amount.value());
     silo.accounts[margin_account_id].free.join(collateral);
   };
+}
+
+/// Transfer market-isolated collateral between two accounts without minting or
+/// destroying USDC. `from_position` / `to_position` select position versus free
+/// buckets for the debit and credit.
+public(package) fun transfer_carry<Instrument>(
+  silo: &mut Silo<Instrument>,
+  from_account_id: ID,
+  to_account_id: ID,
+  amount: UsdcAmount,
+  from_position: bool,
+  to_position: bool,
+) {
+  assert!(amount.value() > 0, EZeroCarryAmount);
+  assert!(from_account_id != to_account_id, ESelfCarry);
+  if (from_position) {
+    silo.validate_position(from_account_id, amount);
+  } else {
+    silo.validate_free(from_account_id, amount);
+  };
+  let collateral = if (from_position) {
+    silo.accounts[from_account_id].position.split(amount.value())
+  } else {
+    silo.accounts[from_account_id].free.split(amount.value())
+  };
+  let receiver = silo.ensure_account(to_account_id);
+  if (to_position) {
+    receiver.position.join(collateral);
+  } else {
+    receiver.free.join(collateral);
+  };
+  silo.remove_empty_account(from_account_id);
 }
 
 public(package) fun free<Instrument>(

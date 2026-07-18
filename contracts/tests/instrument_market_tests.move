@@ -1396,3 +1396,289 @@ fun zero_claim_redemption_size_aborts() {
   transfer::public_share_object(market);
   test.end();
 }
+
+#[test]
+fun directed_carry_moves_position_collateral_without_changing_size() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut payer = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut receiver = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let payer_id = object::id(&payer);
+  let receiver_id = object::id(&receiver);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut payer,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut receiver,
+    usdc_amount::usdc(10),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &payer,
+    usdc_amount::usdc(8),
+    size::size(4),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &receiver,
+    usdc_amount::usdc(4),
+    size::size(2),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::apply_carry(
+    &mut market,
+    payer_id,
+    receiver_id,
+    usdc_amount::usdc(3),
+    1,
+    true,
+    true,
+    &witness,
+  );
+
+  assert_eq!(instrument_market::position_size(&market, payer_id).value(), 4);
+  assert_eq!(instrument_market::position_size(&market, receiver_id).value(), 2);
+  assert_eq!(instrument_market::position_collateral(&market, payer_id).value(), 5);
+  assert_eq!(
+    instrument_market::position_collateral(&market, receiver_id).value(),
+    7,
+  );
+  assert_eq!(instrument_market::total_collateral(&market).value(), 20);
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
+fun directed_carry_can_credit_free_collateral_from_a_reserve() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut reserve = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(5, test.ctx()),
+    test.ctx(),
+  );
+  let mut holder = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(1, test.ctx()),
+    test.ctx(),
+  );
+  let reserve_id = object::id(&reserve);
+  let holder_id = object::id(&holder);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut reserve,
+    usdc_amount::usdc(5),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut holder,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &holder,
+    usdc_amount::usdc(1),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+
+  instrument_market::apply_carry(
+    &mut market,
+    reserve_id,
+    holder_id,
+    usdc_amount::usdc(2),
+    7,
+    false,
+    false,
+    &witness,
+  );
+
+  assert_eq!(instrument_market::free_collateral(&market, reserve_id).value(), 3);
+  assert_eq!(instrument_market::free_collateral(&market, holder_id).value(), 2);
+  assert_eq!(instrument_market::position_size(&market, holder_id).value(), 1);
+  assert_eq!(instrument_market::total_collateral(&market).value(), 6);
+  margin::keep(reserve, test.ctx());
+  margin::keep(holder, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientPositionCollateral)]
+fun carry_cannot_debit_unavailable_position_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut payer = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(1, test.ctx()),
+    test.ctx(),
+  );
+  let mut receiver = margin::new(test.ctx());
+  let payer_id = object::id(&payer);
+  let receiver_id = object::id(&receiver);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut payer,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::issue_long_claim(
+    &mut market,
+    &payer,
+    usdc_amount::usdc(1),
+    size::size(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::apply_carry(
+    &mut market,
+    payer_id,
+    receiver_id,
+    usdc_amount::usdc(2),
+    1,
+    true,
+    true,
+    &witness,
+  );
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientFreeCollateral)]
+fun carry_cannot_debit_unavailable_free_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let payer = margin::new(test.ctx());
+  let receiver = margin::new(test.ctx());
+  instrument_market::apply_carry(
+    &mut market,
+    object::id(&payer),
+    object::id(&receiver),
+    usdc_amount::usdc(1),
+    1,
+    false,
+    false,
+    &witness,
+  );
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::ESelfCarry)]
+fun carry_cannot_transfer_to_the_same_account() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(1, test.ctx()),
+    test.ctx(),
+  );
+  let account_id = object::id(&account);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut account,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::apply_carry(
+    &mut market,
+    account_id,
+    account_id,
+    usdc_amount::usdc(1),
+    1,
+    false,
+    false,
+    &witness,
+  );
+  margin::keep(account, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EZeroCarryAmount)]
+fun zero_carry_amount_aborts() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let payer = margin::new(test.ctx());
+  let receiver = margin::new(test.ctx());
+  instrument_market::apply_carry(
+    &mut market,
+    object::id(&payer),
+    object::id(&receiver),
+    usdc_amount::usdc(0),
+    1,
+    false,
+    false,
+    &witness,
+  );
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test, expected_failure(abort_code = nth::collateral::EInsufficientFreeCollateral)]
+fun one_market_cannot_carry_another_markets_collateral() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut funded = instrument_market::new(&witness, test.ctx());
+  let mut empty = instrument_market::new(&witness, test.ctx());
+  let mut payer = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(1, test.ctx()),
+    test.ctx(),
+  );
+  let receiver = margin::new(test.ctx());
+  instrument_market::deposit_collateral(
+    &mut funded,
+    &mut payer,
+    usdc_amount::usdc(1),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::apply_carry(
+    &mut empty,
+    object::id(&payer),
+    object::id(&receiver),
+    usdc_amount::usdc(1),
+    1,
+    false,
+    false,
+    &witness,
+  );
+  margin::keep(payer, test.ctx());
+  margin::keep(receiver, test.ctx());
+  transfer::public_share_object(funded);
+  transfer::public_share_object(empty);
+  test.end();
+}

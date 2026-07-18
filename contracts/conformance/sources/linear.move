@@ -96,6 +96,28 @@ public fun cancel_order(
   )
 }
 
+/// Apply one funding-style carry between two accounts' position collateral.
+/// Size is unchanged; `period` is the caller's funding round key.
+public fun settle_funding(
+  market: &mut LinearMarket,
+  payer_account_id: ID,
+  receiver_account_id: ID,
+  amount: UsdcAmount,
+  period: u64,
+) {
+  let witness = witness();
+  instrument_market::apply_carry(
+    &mut market.kernel,
+    payer_account_id,
+    receiver_account_id,
+    amount,
+    period,
+    true,
+    true,
+    &witness,
+  );
+}
+
 /// Apply both generic net-position transitions for the next linear fill.
 public fun settle_next(
   market: &mut LinearMarket,

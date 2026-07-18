@@ -85,6 +85,18 @@ public struct ClaimRedeemed<phantom Instrument> has copy, drop {
   collateral_amount: u64,
 }
 
+/// Emitted when collateral moves between accounts without changing exposure.
+public struct CarryApplied<phantom Instrument> has copy, drop {
+  schema_version: u16,
+  market_id: ID,
+  from_account_id: ID,
+  to_account_id: ID,
+  amount: u64,
+  period: u64,
+  from_position: bool,
+  to_position: bool,
+}
+
 // === Public Functions ===
 
 /// Create one isolated generic market while holding the instrument package's
@@ -257,6 +269,44 @@ public fun redeem_long_claim<Instrument>(
     margin_account_id,
     redeemed_size: redemption_size.value(),
     collateral_amount: collateral_amount.value(),
+  });
+}
+
+/// Transfer `amount` of market-isolated collateral from `from_account_id` to
+/// `to_account_id` without changing either net position size. When
+/// `from_position` / `to_position` are true the debit or credit uses position
+/// collateral; otherwise it uses free collateral. `period` is an
+/// instrument-defined accounting key recorded in the event. Period idempotence
+/// remains the instrument's responsibility.
+public fun apply_carry<Instrument>(
+  market: &mut Market<Instrument>,
+  from_account_id: ID,
+  to_account_id: ID,
+  amount: UsdcAmount,
+  period: u64,
+  from_position: bool,
+  to_position: bool,
+  _witness: &Instrument,
+) {
+  market.assert_version();
+  let market_id = object::id(market);
+  collateral::transfer_carry(
+    &mut market.collateral,
+    from_account_id,
+    to_account_id,
+    amount,
+    from_position,
+    to_position,
+  );
+  event::emit(CarryApplied<Instrument> {
+    schema_version: EVENT_SCHEMA_VERSION,
+    market_id,
+    from_account_id,
+    to_account_id,
+    amount: amount.value(),
+    period,
+    from_position,
+    to_position,
   });
 }
 

@@ -164,6 +164,82 @@ fun independent_external_instruments_share_the_same_kernel() {
 }
 
 #[test]
+fun external_linear_instrument_settles_funding_through_carry() {
+  let mut test = test_scenario::begin(ALICE);
+  let mut short_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let mut long_account = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(10, test.ctx()),
+    test.ctx(),
+  );
+  let short_id = object::id(&short_account);
+  let long_id = object::id(&long_account);
+  let mut market = linear::new(test.ctx());
+  linear::deposit_collateral(
+    &mut market,
+    &mut short_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+  linear::deposit_collateral(
+    &mut market,
+    &mut long_account,
+    usdc_amount::usdc(10),
+    test.ctx(),
+  );
+
+  let ask = linear::place_limit_order(
+    &mut market,
+    &short_account,
+    usdc_amount::usdc(8),
+    order::ask(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::complete(&market, ask);
+  let mut bid = linear::place_limit_order(
+    &mut market,
+    &long_account,
+    usdc_amount::usdc(8),
+    order::bid(),
+    price::price(100),
+    size::size(8),
+    test.ctx(),
+  );
+  linear::settle_next(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(8),
+    usdc_amount::usdc(8),
+  );
+  linear::complete(&market, bid);
+
+  linear::settle_funding(
+    &mut market,
+    short_id,
+    long_id,
+    usdc_amount::usdc(3),
+    1,
+  );
+
+  assert_eq!(linear::position_state(&market, short_id), position::short());
+  assert_eq!(linear::position_size(&market, short_id).value(), 8);
+  assert_eq!(linear::position_state(&market, long_id), position::long());
+  assert_eq!(linear::position_size(&market, long_id).value(), 8);
+  assert_eq!(linear::position_collateral(&market, short_id).value(), 5);
+  assert_eq!(linear::position_collateral(&market, long_id).value(), 11);
+  assert_eq!(linear::total_collateral(&market).value(), 20);
+
+  margin::keep(short_account, test.ctx());
+  margin::keep(long_account, test.ctx());
+  linear::share(market);
+  test.end();
+}
+
+#[test]
 fun external_claim_instrument_issues_and_redeems_through_the_kernel() {
   let mut test = test_scenario::begin(ALICE);
   let mut account = margin::new_with_deposit(

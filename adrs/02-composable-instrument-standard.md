@@ -215,6 +215,13 @@ quantity. It can represent:
 - streaming or performance fees;
 - other periodic debits or credits.
 
+The kernel exposes this as `instrument_market::apply_carry`. The instrument
+supplies payer, receiver, amount, accounting period, and whether each side
+debits or credits position versus free collateral while holding its private
+witness. The standard enforces market isolation, positive amount, distinct
+accounts, available collateral, conservation, and a `CarryApplied` event. Period
+idempotence and funding formulas remain instrument responsibilities.
+
 The standard does not require these cash flows to share a calculation. Every
 cash flow identifies its source, recipients, amount, direction, accounting
 period, and any explicit rounding remainder. A funding implementation may
