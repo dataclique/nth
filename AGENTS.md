@@ -6,10 +6,11 @@ govern — read the relevant one before touching that directory.
 
 ## What This Repo Is
 
-Strike is a prototype perpetuals DEX on Sui: a central-limit orderbook with
-leveraged, margin-backed orders, USDC collateral, and ByBit-style liquidation
-math (see [docs/margin.md](docs/margin.md) and
-[docs/liquidation.md](docs/liquidation.md)).
+Nth Market is a prototype permissionless orderbook protocol for composable
+financial instruments on Sui. Its current code is a central-limit orderbook with
+early perpetual-specific margin and liquidation work; the generic instrument
+architecture is specified in
+[ADR 02](adrs/02-composable-instrument-standard.md).
 
 | Directory    | Contents                                                                 | Standards                                  |
 | ------------ | ------------------------------------------------------------------------ | ------------------------------------------ |
