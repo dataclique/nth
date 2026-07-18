@@ -6,7 +6,7 @@ commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Package Layout
 
-Three Move packages under `contracts/`, all edition `2024`. The Sui framework
+Four Move packages under `contracts/`, all edition `2024`. The Sui framework
 dependency is pinned to `testnet-v1.75.1` — the same release as the `sui` CLI in
 `flake.nix` and the backend `sui-sdk`. Bump all three together, never one alone.
 
@@ -28,20 +28,19 @@ Typed fixed-point quantities — one module per type. See `units/README.md` and
 
 ### `nth` (`nth::*`)
 
+The kernel package holds only the generic standard: matching data, balance
+transitions, and lifecycle bookkeeping. Everything perpetual-specific lives in
+the `perpetual` package.
+
 | File                             | Module                   | Contents                                                   |
 | -------------------------------- | ------------------------ | ---------------------------------------------------------- |
-| `sources/risk.move`              | `nth::risk`              | Margin/liquidation/funding formulas; ALL u128 scaling math |
 | `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks   |
-| `sources/order.move`             | `nth::order`             | `Side` enum + `match_side!`, `OrderId`, `Order` struct     |
+| `sources/order.move`             | `nth::order`             | `Side` enum + `match_side!`, `OrderId`                     |
 | `sources/position.move`          | `nth::position`          | Account-bound generic net exposure                         |
 | `sources/collateral.move`        | `nth::collateral`        | Market-isolated USDC balances and order reservations       |
 | `sources/matching.move`          | `nth::matching`          | Generic CLOB + fill and cancellation obligations           |
 | `sources/maintenance.move`       | `nth::maintenance`       | Per-market keeper-action periods, idempotence, reward caps |
 | `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions + cursor-checked settlement         |
-| `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, funding   |
-| `sources/pool.move`              | `nth::pool`              | `Pool`: vault + orderbook + oracle, entry points, cadence  |
-| `sources/vault.move`             | `nth::vault`             | Pooled USDC collateral                                     |
-| `sources/oracle.move`            | `nth::oracle`            | Price oracle object                                        |
 | `tests/`                         | `nth::*_tests`           | One `#[test_only]` module per source module                |
 
 ### `conformance/` (`instrument_conformance::*`)
@@ -75,10 +74,10 @@ its operations, and its constants together:
   `constants` module.
 - **Constants live with the code that owns their meaning.** `float_scaling()` is
   the unit system's, so it lives in `units::scaling`; the funding rate cap is
-  applied inside `risk::funding_rate_bps`, so it lives in `risk`; the funding
-  interval and default margin rate parameterize `Pool`, so they live in `pool`.
-  Placement follows the consumer that defines the semantics, not the syntactic
-  category "constant".
+  applied inside `perpetual::risk::funding_rate_bps`, so it lives there; the
+  oracle staleness bound and liquidation penalty parameterize the perpetual
+  market, so they live in `perpetual::perp`. Placement follows the consumer that
+  defines the semantics, not the syntactic category "constant".
 - **The test for a new item's home:** which module's doc comment would have to
   explain it? That module owns it. If no existing module's domain covers it, the
   item is a new domain — give it a new, domain-named module.
@@ -114,22 +113,23 @@ unrepresentable. Domain logic operates on domain types end to end:
 - **`OrderId` (`nth::order`) is the cancellation key.** Unlike
   `(account, price)` it stays unique when one account rests several orders at
   the same price level. Never key order lookup on anything else.
-- **ALL cross-quantity scaling arithmetic lives in `risk.move` (`nth::risk`) and
-  runs in `u128`.** Double-scaled products overflow `u64` for realistic inputs.
-  No other module multiplies, divides, or rescales these quantities — it calls
-  `margin_required`, `maintenance_margin`, `max_leverage`, `is_liquidated`,
-  `refund_for_unfilled`, or adds a new function HERE.
+- **ALL cross-quantity scaling arithmetic lives in each package's `risk` module
+  and runs in `u128`.** Double-scaled products overflow `u64` for realistic
+  inputs. `perpetual::risk` owns the perp formulas (`initial_margin`,
+  `maintenance_margin`, `max_leverage`, `long_liquidated`/`short_liquidated`,
+  `funding_rate_bps`, `funding_owed`); no other module multiplies, divides, or
+  rescales these quantities — it calls a risk function or adds a new one THERE.
 - **Events carry primitive fields.** An event's BCS layout is the external
   serialization contract consumed by indexers, so event structs hold `u64` /
   `bool` / `ID` and the domain types are projected at the emit site via
-  `.value()` / `is_bid()` — exactly like `OrderCreated` in `orderbook.move`.
-  Never put a domain newtype in an event struct.
+  `.value()` / `is_bid()` — exactly like `OrderFilled` in `matching.move`. Never
+  put a domain newtype in an event struct.
 
 ## Move 2024 Idioms (mandatory)
 
 - **Method syntax** everywhere the receiver is unambiguous:
-  `order.unfilled_size()`, `margin_account.balance()`,
-  `orderbook.bids.push_back(order)` — not `order::unfilled_size(&order)`.
+  `obligation.next_fill()`, `margin_account.balance()`,
+  `orderbook.bids.push_back(order)` — not `matching::next_fill(&obligation)`.
 - **`public use fun` aliases** for every newtype operation, following
   `units::size` (`public use fun size_sub as Size.sub;`). A newtype without
   method aliases is incomplete.
@@ -144,8 +144,8 @@ unrepresentable. Domain logic operates on domain types end to end:
   macro body must only touch public API.
 - **Doc comments (`///`) on every public and `public(package)` function**,
   stating the units/scaling of every quantity it touches and every condition
-  under which it aborts. `units::price`, `risk.move`, and `orderbook.move` set
-  the bar.
+  under which it aborts. `units::price`, `instrument_market.move`, and
+  `perpetual/sources/perp.move` set the bar.
 
 ## Sui Move Best Practices
 
@@ -153,16 +153,16 @@ Distilled from the Sui docs conventions and The Move Book; each is binding.
 
 ### Module and function design
 
-- **One object or data structure per module.** `vault.move` owns `Vault`; don't
-  let another module reach into its fields.
+- **One object or data structure per module.** `collateral.move` owns `Silo`;
+  don't let another module reach into its fields.
 - **Section headers** `// === Name ===` group code in order: errors, constants,
   structs, events, public functions, view functions, package functions, private
   functions, test-only functions.
 - **Keep core functions pure and composable: do not `transfer` inside them.**
   Return the object and let the caller (or a PTB) decide where it goes.
-  Constructors return the object (`margin::new`, `pool::new`); a separate
-  function places it (`keep`). The only sanctioned in-module transfer is for
-  types that deliberately lack `store` (see `MarginAccount.keep`).
+  Constructors return the object (`margin::new`, `perp::new`); a separate
+  function places it (`keep`, `share`). The only sanctioned in-module transfer
+  is for types that deliberately lack `store` (see `MarginAccount.keep`).
 - **Prefer `public fun` over `entry fun`.** `public` is callable both from PTBs
   and from other packages; `entry` blocks cross-package composition. Use `entry`
   only to deliberately forbid other Move code from wrapping a call.
@@ -177,14 +177,14 @@ Distilled from the Sui docs conventions and The Move Book; each is binding.
 ### Ownership and capabilities
 
 - **Owned objects for 1-to-1 relationships** (a user's `MarginAccount`),
-  **shared objects only when multiple parties must mutate** (a `Pool` once
+  **shared objects only when multiple parties must mutate** (a `PerpMarket` once
   trading opens). Withholding `store` (as `MarginAccount` does) pins an object
   to this module's transfer functions — preserve that property.
 - **Admin functions are capability-gated.** Authority is an object with a `Cap`
-  suffix (e.g. a `PriceCap` gating `pool::update_price`), created in `init` and
-  transferred to the publisher, then passed by reference right after the object
-  it guards: `fun update_price(oracle: &mut Oracle, _cap: &PriceCap, ...)`.
-  Never gate admin paths on hardcoded addresses or sender allowlists.
+  suffix (e.g. the `PriceCap` gating `perp::update_mark_price`), created with
+  the object it guards and passed by reference right after it:
+  `fun update_mark_price(market: &mut PerpMarket, cap: &PriceCap, ...)`. Never
+  gate admin paths on hardcoded addresses or sender allowlists.
 - **Hot potato for must-complete flows**: a struct with no abilities cannot be
   stored, copied, or dropped, so the transaction aborts unless the module
   consumes it — the right tool for flash-loan-style "borrow now, settle in the
@@ -240,10 +240,10 @@ they can never be removed or changed, only reimplemented. `public(package)`,
   margin flows, refunds, liquidations — behavior with a computed outcome.
 - **Use `test_scenario`** (`begin` / `next_tx` / `end`) for multi-transaction,
   multi-sender flows, `mint_for_testing<USDC>` for collateral, and shared setup
-  helpers per test module (see `orderbook_tests::setup`).
+  helpers per test module (see `perp_tests::open_position_pair`).
 - **`#[test_only]` for all test scaffolding** — helper functions, state poking
-  like `pool::set_token_price`, extra accessors. Test-only code never widens the
-  production API.
+  like `instrument_market::set_version_for_testing`, extra accessors. Test-only
+  code never widens the production API.
 - **Never weaken an assertion, tolerance, or expected abort code to make a test
   pass.** If the test disagrees with the code, one of them is wrong — determine
   which against [docs/margin.md](../docs/margin.md) and
@@ -274,11 +274,11 @@ Review every change against this list; fix violations in touched code.
 
 ### Structs and events
 
-| Item                                                            | Status |
-| --------------------------------------------------------------- | ------ |
-| Capabilities suffixed with `Cap` (`PriceCap`)                   | Done   |
-| Events named in past tense (`PositionOpened`, `FundingApplied`) | Done   |
-| No `Potato` suffix on hot-potato types                          | N/A    |
+| Item                                                          | Status |
+| ------------------------------------------------------------- | ------ |
+| Capabilities suffixed with `Cap` (`PriceCap`)                 | Done   |
+| Events named in past tense (`OrderFilled`, `PositionSettled`) | Done   |
+| No `Potato` suffix on hot-potato types                        | N/A    |
 
 ### Functions
 
@@ -286,7 +286,7 @@ Review every change against this list; fix violations in touched code.
 | ---------------------------------------------------------- | ---------------------------------- |
 | No `public entry` — `public` or `entry` only               | Done                               |
 | Composable PTB functions (return values, caller transfers) | Done (`new` + `keep`)              |
-| Objects first, capabilities second, `Clock`/`ctx` last     | Done in pool admin paths           |
+| Objects first, capabilities second, `Clock`/`ctx` last     | Done in perp admin paths           |
 | Getters named after fields, no `get_` prefix               | Done (`balance`, `owner`, `price`) |
 
 ### Function body (Move 2024)

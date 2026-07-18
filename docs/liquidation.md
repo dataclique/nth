@@ -1,8 +1,10 @@
 # Liquidation Price Calculation
 
-Liquidation occurs when the oracle price crosses a position's liquidation
-threshold: locked margin falls to the maintenance margin level (or below). The
-position is then removed from the book; its collateral stays in the pool vault.
+Liquidation occurs when the mark price crosses a position's liquidation
+threshold: position collateral falls to the maintenance margin level (or below).
+The position is then force-closed through the standard's forced-settlement
+transition; a percent penalty goes to the liquidating keeper and the remaining
+collateral returns to the liquidated account's free collateral.
 
 Formulas follow
 [ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
@@ -67,7 +69,7 @@ $$
 
 ## Liquidation Condition
 
-`risk::is_liquidated` evaluates in two stages:
+`perpetual::risk::long_liquidated` / `short_liquidated` evaluate in two stages:
 
 1. **Margin below maintenance** — if $M < M_{\mathrm{maint}}$, liquidate at any
    price. (This guards the degenerate case where $M_i - M_{\mathrm{maint}}$
@@ -88,9 +90,9 @@ $$
 L \le \frac{100}{r_m} = L_{\max}
 $$
 
-`risk::max_leverage` computes this bound; `pool::place_leveraged_order` enforces
-it at placement. Above the cap, $M_i < M_{\mathrm{maint}}$ and the position
-would be born past its liquidation threshold (`EInvalidLeverage`).
+`perpetual::risk::max_leverage` computes this bound; `perp::place_limit_order`
+enforces it at placement. Above the cap, $M_i < M_{\mathrm{maint}}$ and the
+position would be born past its liquidation threshold (`EInvalidLeverage`).
 
 At **exactly** $L_{\max}$:
 
@@ -145,20 +147,20 @@ immediately. One step of leverage above this is rejected at placement.
 
 ## Implementation Notes
 
-All margin and liquidation formulas live in `nth::risk` (`margin_required`,
-`maintenance_margin`, `max_leverage`, `is_liquidated`). Every intermediate
-product runs in `u128`: double-scaled values like $P \cdot S$ overflow `u64` for
-realistic inputs.
+All margin and liquidation formulas live in `perpetual::risk` (`initial_margin`,
+`maintenance_margin`, `max_leverage`, `long_liquidated`, `short_liquidated`).
+Every intermediate product runs in `u128`: double-scaled values like $P \cdot S$
+overflow `u64` for realistic inputs.
 
-`pool::check_liquidations` drives the sweep: it rejects stale oracle prices
-(older than `pool::max_oracle_staleness_ms()`), then reads the current price
-from the pool's oracle and calls `orderbook::remove_liquidated_bids` /
-`remove_liquidated_asks`, each a single $O(n)$ pass that removes every position
-past its threshold. Each removal emits a `PositionLiquidated` event carrying
-both the position's entry price and the oracle price that triggered it. The
-oracle price only moves through `pool::update_price`, gated by the pool's
-`PriceCap` capability.
+`perp::liquidate` is the permissionless trigger: it rejects mark prices older
+than the market's staleness bound, proves the position is past its
+entry-anchored threshold at the fresh mark, carries a percent penalty from the
+liquidated account's position collateral to the sender-owned keeper account, and
+force-closes the full position through
+`instrument_market::force_reduce_position`, releasing the remainder to free
+collateral. The `PositionLiquidated` event carries the position's average entry
+price and the mark price that triggered it. The mark price only moves through
+`perp::update_mark_price`, gated by the market's `PriceCap` capability.
 
-The maintenance margin rate $r_m$ is a per-pool parameter adjustable for risk
-management. See [margin.md](margin.md) for how margin is locked, refunded, and
-swept.
+The maintenance margin rate $r_m$ is a per-market parameter fixed at creation.
+See [margin.md](margin.md) for how margin is reserved, consumed, and released.

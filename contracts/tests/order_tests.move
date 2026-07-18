@@ -1,24 +1,7 @@
 #[test_only]
 module nth::order_tests;
 
-use nth::order::{Self, Order};
-use nth::units::{Self, Price, Size};
-
-fun px(value: u64): Price { units::price(value*units::float_scaling()) }
-
-fun sz(value: u64): Size { units::size(value*units::float_scaling()) }
-
-fun new_order(size: Size, ctx: &TxContext): Order {
-  order::new(
-    object::id_from_address(@0xCAFE),
-    order::bid(),
-    px(100),
-    size,
-    units::leverage(2*units::float_scaling()),
-    units::usdc(500*units::float_scaling()),
-    ctx,
-  )
-}
+use nth::order;
 
 #[test]
 fun test_match_side_dispatches_bid_and_ask() {
@@ -44,37 +27,4 @@ fun test_order_id_next_is_monotonic() {
 fun test_order_id_eq() {
   assert!(order::order_id(7).eq(order::order_id(7)), 0);
   assert!(!order::order_id(7).eq(order::order_id(8)), 1);
-}
-
-#[test]
-fun test_unfilled_size_tracks_fills() {
-  let ctx = tx_context::dummy();
-  let mut order = new_order(sz(10), &ctx);
-
-  order.set_filled_size(sz(3));
-
-  assert!(order.unfilled_size().eq(sz(7)), 0);
-}
-
-#[test]
-fun test_unfilled_size_zero_when_fully_filled() {
-  let ctx = tx_context::dummy();
-  let mut order = new_order(sz(10), &ctx);
-
-  order.set_filled_size(sz(10));
-
-  assert!(order.unfilled_size().is_zero(), 0);
-}
-
-/// `set_filled_size` does not validate against `size`; `Order` trusts its
-/// callers on the `filled_size <= size` invariant, so a violation only
-/// surfaces as an arithmetic underflow when `unfilled_size` is read.
-#[test, expected_failure(arithmetic_error, location = nth::units)]
-fun test_set_filled_beyond_size_underflows_on_read() {
-  let ctx = tx_context::dummy();
-  let mut order = new_order(sz(10), &ctx);
-
-  order.set_filled_size(sz(11));
-
-  let _ = order.unfilled_size();
 }

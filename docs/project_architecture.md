@@ -5,25 +5,23 @@
 Nth Market is a permissionless orderbook protocol for composable financial
 instruments. The generic kernel matches orders and owns account-bound net
 positions; external instrument packages supply collateral, valuation, carry,
-settlement, and liquidation semantics. The older `Pool` path below remains the
-perpetual prototype while those economics migrate onto the standard.
+settlement, and liquidation semantics. The perpetual lives in its own
+`contracts/perpetual` package built entirely on the standard.
 
 ## Module Map
 
-| File                             | Module                   | Responsibility                                                      |
-| -------------------------------- | ------------------------ | ------------------------------------------------------------------- |
-| `units/sources/*.move`           | `units::*`               | Typed fixed-point quantities and `float_scaling()` ($10^6$)         |
-| `sources/risk.move`              | `nth::risk`              | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
-| `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
-| `sources/order.move`             | `nth::order`             | `Order` struct, `Side` enum, `OrderId`                              |
-| `sources/position.move`          | `nth::position`          | Generic flat/long/short net exposure                                |
-| `sources/collateral.move`        | `nth::collateral`        | Market-isolated USDC custody and typed order reservations           |
-| `sources/matching.move`          | `nth::matching`          | Generic CLOB and non-droppable fill/cancel obligations              |
-| `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions and settlement cursor checks                 |
-| `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, events             |
-| `sources/pool.move`              | `nth::pool`              | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
-| `sources/vault.move`             | `nth::vault`             | Pooled USDC collateral                                              |
-| `sources/oracle.move`            | `nth::oracle`            | Price feed object for a pool                                        |
+| File                                     | Module                      | Responsibility                                              |
+| ---------------------------------------- | --------------------------- | ----------------------------------------------------------- |
+| `units/sources/*.move`                   | `units::*`                  | Typed fixed-point quantities and `float_scaling()` ($10^6$) |
+| `sources/margin.move`                    | `nth::margin`               | `MarginAccount`: USDC deposits/withdrawals, owner checks    |
+| `sources/order.move`                     | `nth::order`                | `Side` enum, `OrderId`                                      |
+| `sources/position.move`                  | `nth::position`             | Generic flat/long/short net exposure                        |
+| `sources/collateral.move`                | `nth::collateral`           | Market-isolated USDC custody and typed order reservations   |
+| `sources/matching.move`                  | `nth::matching`             | Generic CLOB and non-droppable fill/cancel obligations      |
+| `sources/maintenance.move`               | `nth::maintenance`          | Keeper-action periods, idempotence, reward caps             |
+| `sources/instrument_market.move`         | `nth::instrument_market`    | Market-owned positions and settlement cursor checks         |
+| `perpetual/sources/{perp,risk,...}.move` | `perpetual::*`              | Complete linear perpetual reference instrument              |
+| `conformance/sources/{linear,...}.move`  | `instrument_conformance::*` | External fixture instruments proving the boundary           |
 
 ## Core Components
 
@@ -133,95 +131,31 @@ reserve free collateral), and liquidation proves the entry-anchored threshold at
 a fresh mark before force-reducing the full position with a percent penalty
 carried to the keeper.
 
-### Pool
+### Matching engine
 
-The Pool is the central component that orchestrates all trading activities for a
-specific token. `pool::new` validates the maintenance margin rate
-(`0 < rate <= 100`) and **shares** the Pool object: a market must accept orders
-from any trader, so every mutation goes through Sui's shared-object consensus
-rather than a single owner. The struct carries a `version` field asserted by
-every mutator, giving package upgrades an explicit migration path. It serves as
-the main interface for:
+Each generic market owns one price-time-priority book per side: bids sorted
+highest price first, asks lowest first, each a contiguous `vector` re-sorted
+with a stable insertion sort after every append — a deliberate data-structure
+choice recorded in
+[adrs/01-orderbook-insertion-sort.md](../adrs/01-orderbook-insertion-sort.md).
+Matching runs on placement: an incoming order crosses the opposite side in price
+priority, **fills execute at the resting (maker) order's price** with an
+`OrderFilled` event per match, and any remainder rests. Self-trades abort with
+`ESelfMatch`. Every placed order gets a sequential `OrderId` — the cancellation
+key that stays unique when one account rests several orders at one price level.
+`best_bid_price` / `best_ask_price` views expose the front of each side so
+instruments can derive book-relative quantities such as the funding divergence.
 
-- Order placement and management (`place_leveraged_order`, `close_position`)
-- Fund handling through the vault
-- Oracle price updates (`update_price`, gated by `PriceCap`)
-- Liquidation sweeps (`check_liquidations`)
-- Funding rounds (`update_funding`, permissionless, once per interval)
+### Mark price and PriceCap (perpetual)
 
-Order placement validates everything at the boundary before any state changes:
-account ownership, non-zero price and size, the leverage cap, and a non-zero
-margin (dust notionals whose margin truncates to zero abort with `EZeroMargin`).
-Leverage above `100 / maintenance_margin_rate` (or zero leverage) aborts with
-`EInvalidLeverage` — above that bound the initial margin is below the
-maintenance margin, so the position would be born liquidatable. Margin formulas,
-collateral flow, and the leverage cap are in [margin.md](margin.md); liquidation
-thresholds are in [liquidation.md](liquidation.md).
-
-Matching enforces self-trade prevention: an incoming order that would cross a
-resting order from the same margin account aborts with `ESelfMatch` rather than
-filling against it or trading through it.
-
-`update_funding` runs a funding round — margin bookkeeping that tethers the book
-to the oracle by moving margin from the side trading away from spot to the other
-side. It is permissionless and rate-limited to once per interval
-(`EFundingTooSoon`). See [funding.md](funding.md).
-
-### PriceCap
-
-Creating a pool mints a `PriceCap` and returns it to the caller, who decides
-where it lives (keep, DAO, multisig). `pool::update_price` requires the cap (and
-checks it belongs to that pool), so only the cap holder can move the oracle
-price — and with it, every liquidation decision. There is no other production
-path to the price.
-
-This is a deliberate trust trade-off. Because the cap is the sole price path,
-**losing it freezes the pool's price at its last value**: `update_price` can
-never be called again, and there is no re-issuance path (adding one would
-reintroduce the admin authority the capability removes). Once the frozen price
-is older than `pool::max_oracle_staleness_ms()` (currently one hour), every
-`check_liquidations` call aborts with `EStaleOracle` and liquidations halt
-entirely — the staleness guard bounds bad liquidations from a frozen price but
-cannot substitute for cap custody. Custody is therefore a liveness-critical
-responsibility — hold it in a durable multisig, not a hot key.
-
-### OrderBook
-
-The OrderBook maintains the resting orders for a specific token:
-
-- Buy orders (bids), sorted highest price first
-- Sell orders (asks), sorted lowest price first
-
-Each side is a contiguous `vector<Order>` re-sorted with a stable insertion sort
-after every append — a deliberate data-structure choice recorded in
-[adrs/01-orderbook-insertion-sort.md](../adrs/01-orderbook-insertion-sort.md)
-(workload, layout, gas model, and the stability that preserves price-time
-priority).
-
-The matching engine runs on placement: an incoming order first crosses against
-the opposite side of the book, walking resting orders in price priority. A bid
-matches asks priced at or below it; an ask matches bids priced at or above it.
-**Fills execute at the resting (maker) order's price**, and each fill emits an
-`OrderMatched` event. Any unfilled remainder rests on the book.
-
-Every placed order is assigned a sequential `OrderId`, which is the cancellation
-key. Unlike an `(account, price)` pair, the id stays unique when one account
-rests several orders at the same price level, so each is individually
-cancellable.
-
-### Vault
-
-The Vault is responsible for:
-
-- Holding all deposited collateral for a pool
-- Processing withdrawals when positions close
-- Storing liquidated funds
-
-### Oracle
-
-Each pool owns an Oracle object holding the current price and its last update
-time. It is written only through the capability-gated `pool::update_price` and
-read by the liquidation sweep. Every update emits a `PriceUpdate` event.
+Creating a perpetual market mints a `PriceCap` and returns it to the caller, who
+decides where it lives (keep, DAO, multisig). `perp::update_mark_price` requires
+the cap and checks it belongs to that market, so only the cap holder can move
+the mark price — and with it every liquidation decision. Losing the cap freezes
+the mark at its last value; once it is older than the market's staleness bound
+(60 seconds), funding rounds and liquidations abort with `EStalePrice`. Custody
+is a liveness-critical responsibility — hold the cap in a durable multisig, not
+a hot key.
 
 ### MarginAccount
 
@@ -235,52 +169,57 @@ sender. This pins the account to its recorded `owner`, which `deposit` and
 ### Units and Risk
 
 Prices, sizes, leverage, and USDC amounts are typed fixed-point quantities
-(`units::*`) scaled by $10^6$, matching USDC's 6 decimals. All cross-quantity
-arithmetic lives in `nth::risk` and runs in `u128`. See
-[float_scaling.md](float_scaling.md) for encoding and [margin.md](margin.md) for
-the financial formulas.
+(`units::*`) scaled by $10^6$, matching USDC's 6 decimals. Cross-quantity
+arithmetic lives in each instrument's risk module (`perpetual::risk` for the
+perp) and runs in `u128`. See [float_scaling.md](float_scaling.md) for encoding
+and [margin.md](margin.md) for the financial formulas.
 
-## User Flow
+## User Flow (perpetual)
 
 ### Account Setup
 
 1. Users create margin accounts (`margin::new` or `margin::new_with_deposit`)
    and keep them at their own address
-2. Deposit USDC into their margin accounts
-3. Only the account owner can deposit to or withdraw from the account
+2. `perp::deposit_collateral` moves USDC into the market's isolated silo as free
+   collateral
+3. Only the account owner can deposit, withdraw, or place orders
 
 ### Order Placement
 
-1. User specifies:
-   - Target token (pool)
-   - Side (bid or ask)
-   - Order size
-   - Price
-   - Leverage
-2. Pool validates the inputs (ownership, non-zero price/size, leverage cap) and
-   calculates the required margin (`risk::margin_required`)
-3. The margin moves from the user's margin account to the pool's vault
-4. The order crosses the opposite side of the book; fills execute at maker
-   prices, and any remainder rests on the book
-5. The user receives the order's `OrderId` for later cancellation
+1. User specifies side, price, size, and leverage
+2. `perp::place_limit_order` validates ownership, non-zero price/size, the
+   leverage cap, and non-dust margin, then reserves the initial margin
+   (`price * size / leverage`) from free collateral
+3. The order crosses the opposite side of the book; each fill consumes both
+   parties' margin at their own leverage into position collateral, accrues
+   funding, and updates average entries — atomically inside the call
+4. Any remainder rests on the book under a sequential `OrderId`; cancellation
+   releases the unconsumed reservation
+
+### Funding
+
+1. Anyone settles a due round with `perp::settle_funding_round`: the rate comes
+   from the live book mid vs a fresh mark price, the paying side's cumulative
+   index advances, and the keeper earns a capped reward from the pre-funded
+   reserve through the kernel's maintenance bookkeeping
+2. Anyone settles an account with `perp::settle_account_funding`: accruals net
+   and move through carry against the reserve, payments capped at the payer's
+   position collateral
 
 ### Liquidation Process
 
-1. The `PriceCap` holder updates the oracle price
-2. `pool::check_liquidations` sweeps the book against the current oracle price,
-   using `risk::is_liquidated`
-3. Every position past its liquidation threshold is:
-   - Removed from the orderbook
-   - Reported via a `PositionLiquidated` event
-   - Its funds remain in the vault
+1. The `PriceCap` holder keeps the mark price fresh
+2. Anyone calls `perp::liquidate` on an under-collateralized account: the
+   entry-anchored threshold is proven at the fresh mark, a percent penalty is
+   carried to the keeper, and the position force-closes through the standard's
+   forced-settlement transition, releasing the remainder to the liquidated
+   account's free collateral with a `PositionLiquidated` event
 
 ### Withdrawal Process
 
-1. User closes their position by `OrderId` (`pool::close_position`)
-2. The margin backing the unfilled remainder (`risk::refund_for_unfilled`) is
-   transferred:
-   - From the vault
-   - Back to the user's margin account
+1. Cancelling resting orders releases their reservations to free collateral
+2. `perp::withdraw_collateral` returns free collateral to the margin account —
+   reserved and position collateral cannot leave through this path
 3. The user withdraws USDC from their margin account
 
 ## Security Features
@@ -288,24 +227,26 @@ the financial formulas.
 ### Signature-based Security
 
 - All fund movements require the account owner's signature
-- Ownership is asserted at every boundary, ensuring only the account owner can:
-  - Place orders
-  - Withdraw funds
-  - Close positions
+- Ownership is asserted at every boundary, ensuring only the account owner can
+  place orders, deposit, and withdraw
+- Distress transitions (liquidation, forced settlement) are deliberately
+  involuntary: authority comes from the instrument's private witness scoped to
+  its own market, never from a sender check
 
 ### Capability-based Administration
 
-- Oracle price updates require the pool's `PriceCap` — no hardcoded addresses or
+- Mark-price updates require the market's `PriceCap` — no hardcoded addresses or
   sender allowlists
-- `check_liquidations` aborts when the oracle price is older than
-  `pool::max_oracle_staleness_ms()` (currently one hour)
-- If the `PriceCap` is lost, `update_price` is permanently disabled for that
-  pool — there is no re-issuance path — and liquidation sweeps abort once the
-  frozen price exceeds the staleness window
+- Funding rounds and liquidations abort when the mark price is older than the
+  market's staleness bound
+- If the `PriceCap` is lost, the mark price freezes and there is no re-issuance
+  path; liquidations halt once the frozen price exceeds the staleness window
 
 ### Fund Protection
 
-- Collateral is always held in the vault while a position is open
-- No direct fund movement between users
+- Collateral is isolated per market in the kernel silo; no market can debit
+  another market's collateral
+- Position collateral moves only through standard transitions (settlement,
+  carry, terminal, forced) — never by direct instrument arithmetic
 - `MarginAccount` cannot be transferred or wrapped by external code (no `store`
   ability), so it stays bound to its owner

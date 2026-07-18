@@ -4,6 +4,10 @@
 - Date: 2026-07-07
 - Issue: none — decision made and implemented during the review of PR #7
   (feat/orderbook); no tracker issue exists for this repo.
+- Note (2026-07-18): the legacy `nth::orderbook` this ADR was written against
+  has been dissolved into the perpetual package; the decision lives on unchanged
+  in the generic matching kernel (`nth::matching`), which stores each book side
+  the same way.
 
 ## Context
 

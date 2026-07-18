@@ -12,9 +12,10 @@ decimals (see
 [`usdc.move` in circlefin/stablecoin-sui](https://github.com/circlefin/stablecoin-sui/blob/master/packages/usdc/sources/usdc.move),
 where `create_currency` is called with `decimals = 6`), so one factor of
 `FLOAT_SCALING` cancels exactly against USDC's base-unit denominator. This is
-what lets `risk::margin_required` divide a double-scaled `price * size` product
-by scaled leverage and land directly in USDC base units as a `UsdcAmount` (which
-the caller deposits into a `Balance<USDC>` without rescaling).
+what lets `perpetual::risk::initial_margin` divide a double-scaled
+`price * size` product by scaled leverage and land directly in USDC base units
+as a `UsdcAmount` (which the caller deposits into a `Balance<USDC>` without
+rescaling).
 
 ## Why Float Scaling?
 
@@ -48,11 +49,11 @@ silent bug.
 ## Where the Arithmetic Lives
 
 Every formula that combines quantities — and therefore juggles the scaling
-factors — lives in `nth::risk`, and every intermediate product runs in `u128`: a
-double-scaled product like `price * size` overflows `u64` for realistic inputs.
-No other module multiplies, divides, or rescales these quantities.
-Human-readable formulas are in [margin.md](margin.md) and
-[liquidation.md](liquidation.md).
+factors — lives in the owning instrument's risk module (`perpetual::risk` for
+the perp), and every intermediate product runs in `u128`: a double-scaled
+product like `price * size` overflows `u64` for realistic inputs. No other
+module multiplies, divides, or rescales these quantities. Human-readable
+formulas are in [margin.md](margin.md) and [liquidation.md](liquidation.md).
 
 ### Notation
 
@@ -137,18 +138,18 @@ let buffer =
 
 2. **Multiplying two scaled values** double-scales the result — divide by
    `float_scaling()` once (or by an equally-scaled divisor, as in
-   `margin_required`) to return to a single scale.
+   `initial_margin`) to return to a single scale.
 
 3. **Dividing two equally-scaled values** cancels the scaling entirely —
    multiply by `float_scaling()` to restore it when the result should stay
-   scaled (as in the `is_liquidated` buffer).
+   scaled (as in the liquidation buffer).
 
 ## Example: Placing an Order
 
 ```move
-pool::place_leveraged_order(
-    &mut pool,
-    &mut margin_account,
+perp::place_limit_order(
+    &mut market,
+    &margin_account,
     order::bid(),
     price::price(100 * scaling::float_scaling()), // price: 100 USDC
     size::size(10 * scaling::float_scaling()),   // size: 10 tokens
