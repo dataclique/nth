@@ -5,9 +5,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-rocket = "0.5.0"
+rocket = { version = "0.5.0", features = ["json"] }
+rocket_ws = "0.1.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 shuttle-rocket = "0.52.0"
 shuttle-runtime = "0.52.0"
+shuttle-shared-db = { version = "0.52.0", features = ["postgres", "sqlx"] }
+thiserror = "2.0.18"
 tokio = { version = "1.26.0", features = ["full"] }
 sqlx = { version = "0.8.3", features = [
   "postgres",
@@ -17,3 +22,8 @@ sqlx = { version = "0.8.3", features = [
 
 # Pinned to the same sui release as the CLI provided by the nix devshell
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.75.1" }
+
+# The sui-sdk dependency tree is enormous; debug info alone adds multiple
+# gigabytes of build artifacts. Backtraces on panics remain available.
+[profile.dev]
+debug = false

@@ -5,14 +5,31 @@ commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## What This Is
 
-The supporting backend for indexing and caching chain data for the frontend.
-Stack (see `Cargo.toml` / `src/main.rs`):
+The non-custodial platform surface specified in SPEC.md: an event indexer, a
+versioned REST/WebSocket market-data API, and unsigned-transaction templates. It
+holds no keys and cannot move funds. Stack (see `Cargo.toml`):
 
-- **Rocket 0.5** HTTP server, run through **Shuttle** (`shuttle-rocket` /
-  `shuttle-runtime` 0.52, `#[shuttle_runtime::main]`)
-- **sqlx 0.8** with Postgres (`runtime-tokio`, native TLS)
+- **Rocket 0.5** HTTP server + **rocket_ws**, run through **Shuttle**
+  (`shuttle-rocket` / `shuttle-runtime` 0.52, `#[shuttle_runtime::main]`,
+  `shuttle-shared-db` Postgres)
+- **sqlx 0.8** with Postgres (`runtime-tokio`, native TLS) — durable raw event
+  log + indexer cursors, migrated by `sqlx::migrate!`
 - **sui-sdk** as a git dependency pinned to tag `testnet-v1.75.1`
-- Currently minimal: a CORS fairing and an index route in `src/main.rs`
+
+Package by feature:
+
+| File             | Contents                                                          |
+| ---------------- | ----------------------------------------------------------------- |
+| `src/events.rs`  | Typed decode of every tracked on-chain event from RPC JSON        |
+| `src/state.rs`   | Pure projections: books, trades, candles, accounts, registry      |
+| `src/indexer.rs` | Sui polling, Postgres persistence, replay-on-boot, WS fan-out     |
+| `src/api.rs`     | `/v1` REST + WebSocket routes                                     |
+| `src/tx.rs`      | `CallSpec` builders: PTB-shaped Move-call templates, never signed |
+| `src/main.rs`    | Shuttle wiring: migrations, replay, indexer task, mounts          |
+
+Deployment secrets: `SUI_RPC_URL`, `TRACKED_MODULES` (`0xpkg::module,...`), and
+`*_PACKAGE_ID` entries for the tx builders. All optional — without them the
+service serves an empty index and declines tx endpoints.
 
 ## The sui-sdk Pin
 
