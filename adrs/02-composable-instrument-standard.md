@@ -100,11 +100,23 @@ reconstructed off-chain from immutable fill events. Users who later need
 strategy isolation can use separate margin accounts; v1 does not add a hedge
 mode that holds economically cancelling long and short positions in one account.
 
-`Position<Instrument>` is stored under its margin account and cannot be
-independently transferred. Position exposure changes only through standardized
-lifecycle transitions. A future liability transfer is a novation requiring
-recipient consent and a post-transfer solvency check, not a generic `transfer`.
-Novation is outside v1.
+`Position<Instrument>` is logically bound to its margin-account ID but
+physically stored in the shared market's keyed position table. A later taker
+transaction cannot include the address-owned margin account of a resting maker,
+so storing maker exposure under that owned object would make automatic
+settlement impossible. Making every margin account shared would instead add
+global contention and expose a much broader mutation surface.
+
+The market table is keyed by margin-account ID and contains at most one
+`Position<Instrument>` for that account and market. The position has no `key`,
+the standard exposes no extraction function, and external packages can neither
+transfer it nor mutate the table directly. Voluntary actions still require the
+address-owned margin account and sender authorization; a later fill uses the
+already-recorded account ID to update both shared-market positions atomically.
+
+Position exposure changes only through standardized lifecycle transitions. A
+future liability transfer is a novation requiring recipient consent and a
+post-transfer solvency check, not a generic `transfer`. Novation is outside v1.
 
 ### Orders are not positions
 
@@ -135,14 +147,19 @@ The instrument package wraps the matching kernel:
 3. It calls the generic matching kernel.
 4. The kernel updates the book and returns a non-droppable batch describing
    every maker/taker fill and any resting remainder.
-5. The instrument implementation settles both sides of every fill through the
-   standard position and collateral transitions.
-6. It consumes the obligation only after settlement and post-trade checks
-   succeed.
+5. The instrument implementation inspects the next fill and performs its
+   instrument-specific accounting.
+6. A standard-owned `settle_next` transition updates both generic net positions
+   and advances a private settlement cursor exactly once.
+7. The instrument consumes the obligation only after the cursor proves every
+   fill settled and all post-trade checks succeed.
 
 An unconsumed obligation aborts the whole transaction. Matching can therefore
 remain reusable without allowing a caller to keep a fill while skipping its
-settlement.
+generic position settlement. Merely requiring an instrument witness when
+destroying the hot potato is insufficient: the instrument package can construct
+its own witness and could consume immediately. Completion therefore checks
+standard-owned progress rather than trusting the wrapper.
 
 Move has static generic dispatch rather than an EVM-style runtime interface
 call. The kernel does not discover and call an unknown package. A third-party
@@ -655,9 +672,9 @@ Each spike runs on a throwaway branch and is deleted after recording the result.
 2. **Atomic obligation:** prove that a no-ability fill batch can cross the
    kernel/instrument package boundary, expose all required fill data, and make
    incomplete settlement fail at transaction completion.
-3. **Account-bound storage:** compare a wrapped generic position value with a
-   dynamic-field position under `MarginAccount`; prove external code cannot
-   extract or transfer it.
+3. **Account-bound storage:** compare address-owned account storage with a
+   shared-market keyed position table; prove external code cannot extract or
+   transfer positions and that a taker can settle a resting maker.
 4. **Multiple instrument packages:** implement minimal linear and expiring test
    instruments in separate packages and run them against one unchanged kernel.
 5. **Event envelope:** compile and BCS-test primitive generic-event projections
@@ -665,25 +682,37 @@ Each spike runs on a throwaway branch and is deleted after recording the result.
 6. **Shared-object cost:** measure bounded fill-batch and net-position updates
    against Sui object and transaction limits.
 
-Failure of a spike changes the conceptual mechanism, not the accepted separation
-of matching, positions, and instrument economics. No public signature is
-published until all six are resolved.
+All six spikes compiled and ran against Sui v1.75.1. They changed two conceptual
+mechanisms before publication:
+
+- positions are logically account-bound but physically stored in the shared
+  market, because the maker's address-owned account cannot be an input to a
+  later taker transaction;
+- a fill obligation owns a private settlement cursor, and only the standard's
+  two-sided net-position transition advances it.
+
+The spikes also established that private external witnesses, two independent
+instrument types, no-ability cross-package obligations, phantom-typed primitive
+events, keyed position access, and bounded fill batches compile together. Fill
+batches are explicitly capped rather than relying on transaction gas as an
+implicit bound. Failure of a future spike changes the conceptual mechanism, not
+the accepted separation of matching, positions, and instrument economics.
 
 ## Validation of assumptions
 
-| Assumption                                                        | Validation                                                                                                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Move witnesses can identify an external instrument implementation | compile spike against the pinned Sui v1.75.1 toolchain and official witness/capability patterns                 |
-| A fill can require same-transaction settlement across packages    | hot-potato compile/test spike with an intentionally incomplete transaction                                      |
-| One generic position can be stored under a margin account         | compare wrapped and dynamic-field prototypes; test ownership and extraction failures                            |
-| USDC \(10^6\) scaling is conserved                                | property and boundary tests over every standard collateral transition                                           |
-| Instrument packages cannot cross market silos                     | adversarial Move package test attempting wrong-market debit and settlement                                      |
-| Carry can model funding and distributions without shared formulas | linear-perp and dividend reference tests using the same transition                                              |
-| Terminal settlement can model European options                    | cash-settled option reference test at zero, at-the-money, and in-the-money boundaries                           |
-| A strategy vault fits the same position lifecycle                 | deposit, trade, carry, fee, redemption, and forced-unwind conformance test                                      |
-| Manager authority is non-custodial                                | adversarial manager tests for direct withdrawal, self-payment, policy bypass, and replay                        |
-| Event layouts support independent indexers                        | BCS fixture tests and indexer reconciliation against on-chain balances                                          |
-| V2 cross-chain control can remain additive                        | read the actual Ika Move contracts and another candidate design before specifying an executor; no v1 dependency |
+| Assumption                                                                                       | Validation                                                                                                      |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Move witnesses can identify an external instrument implementation                                | compile spike against the pinned Sui v1.75.1 toolchain and official witness/capability patterns                 |
+| A fill can require same-transaction settlement across packages                                   | hot-potato compile/test spike with an intentionally incomplete transaction                                      |
+| One generic position is account-bound without requiring its owned object during maker settlement | market-owned keyed-table prototype; test maker updates, ownership, and extraction failures                      |
+| USDC \(10^6\) scaling is conserved                                                               | property and boundary tests over every standard collateral transition                                           |
+| Instrument packages cannot cross market silos                                                    | adversarial Move package test attempting wrong-market debit and settlement                                      |
+| Carry can model funding and distributions without shared formulas                                | linear-perp and dividend reference tests using the same transition                                              |
+| Terminal settlement can model European options                                                   | cash-settled option reference test at zero, at-the-money, and in-the-money boundaries                           |
+| A strategy vault fits the same position lifecycle                                                | deposit, trade, carry, fee, redemption, and forced-unwind conformance test                                      |
+| Manager authority is non-custodial                                                               | adversarial manager tests for direct withdrawal, self-payment, policy bypass, and replay                        |
+| Event layouts support independent indexers                                                       | BCS fixture tests and indexer reconciliation against on-chain balances                                          |
+| V2 cross-chain control can remain additive                                                       | read the actual Ika Move contracts and another candidate design before specifying an executor; no v1 dependency |
 
 Primary references to validate design details:
 
