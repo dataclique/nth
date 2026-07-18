@@ -6,7 +6,7 @@ commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Package Layout
 
-Five Move packages under `contracts/`, all edition `2024`. The Sui framework
+Six Move packages under `contracts/`, all edition `2024`. The Sui framework
 dependency is pinned to `testnet-v1.75.1` — the same release as the `sui` CLI in
 `flake.nix` and the backend `sui-sdk`. Bump all three together, never one alone.
 
@@ -77,6 +77,16 @@ it.
 | `options/sources/oracle.move`   | `options::oracle`   | Capability-gated underlying price for exercise/settlement    |
 | `options/tests/`                | `options::*_tests`  | Premium, escrow, exercise, binding, reserve clearing         |
 
+### `funds/` (`funds::*`)
+
+The community-funded strategy vault reference instrument. Depends on `nth` and
+`units`; the kernel imports nothing from it.
+
+| File                       | Module               | Contents                                                          |
+| -------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `funds/sources/vault.move` | `funds::vault`       | NAV share claims, dead-share defense, share book, buyback quoting |
+| `funds/tests/`             | `funds::vault_tests` | Deposit/redeem, secondary trades, policy, and burn coverage       |
+
 ## Module Organization
 
 Package by domain, never by kind. A module is one domain concept with its data,
@@ -104,6 +114,7 @@ cd contracts && sui move test          # nth package — must be green ALWAYS
 cd contracts/conformance && sui move test # external instrument fixtures
 cd contracts/perpetual && sui move test   # perpetual reference instrument
 cd contracts/options && sui move test     # option reference instruments
+cd contracts/funds && sui move test       # community vault reference
 sui move test <filter>                 # run matching tests during iteration
 ```
 

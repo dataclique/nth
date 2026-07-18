@@ -67,4 +67,4 @@ jobs:
         run: |
           nix develop \
             --impure --accept-flake-config --show-trace \
-            --command /bin/bash -c 'cd contracts/units && sui move test && cd ../conformance && sui move test && cd ../perpetual && sui move test && cd ../options && sui move test && cd .. && sui move test'
+            --command /bin/bash -c 'cd contracts/units && sui move test && cd ../conformance && sui move test && cd ../perpetual && sui move test && cd ../options && sui move test && cd ../funds && sui move test && cd .. && sui move test'

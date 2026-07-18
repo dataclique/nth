@@ -22,6 +22,7 @@ settlement, and liquidation semantics. The perpetual lives in its own
 | `sources/instrument_market.move`         | `nth::instrument_market`    | Market-owned positions and settlement cursor checks         |
 | `perpetual/sources/{perp,risk,...}.move` | `perpetual::*`              | Complete linear perpetual reference instrument              |
 | `options/sources/{european,...}.move`    | `options::*`                | Option-family reference instruments                         |
+| `funds/sources/vault.move`               | `funds::vault`              | Community strategy vault: NAV claims, buyback quoting       |
 | `conformance/sources/{linear,...}.move`  | `instrument_conformance::*` | External fixture instruments proving the boundary           |
 
 ## Core Components
@@ -178,6 +179,23 @@ escrow `periods * local_cap` per unit — the maximum possible accrued payoff �
 the exotic stays fully collateralized. After the final reset the accumulated
 payoff binds once and settlement clears through the reserve exactly like the
 European option. No kernel change was needed.
+
+### Community strategy vault
+
+`funds::vault` is the fund/strategy-claim and community market-making vault
+reference. Deposits issue NAV-priced share claims through the kernel's issuance
+transition, with the deposit carried into a treasury keyed by the vault market's
+own object ID — an ID no `MarginAccount` can carry, so no withdrawal path exists
+for anyone (including the manager) and no public path can credit it, making NAV
+donation-resistant by construction. The first deposit locks dead shares against
+first-depositor share-price inflation. Shares trade on the vault's own book:
+buyers escrow the premium, sellers list only unlisted holdings (a short share is
+unrepresentable), and premiums carry buyer → seller per fill. The manager's
+authority is a capability bounded by disclosed policy: policy-capped buyback
+bids quoted from treasury free collateral through the kernel's witness-gated
+instrument-order path, with bought-back shares burned immediately via forced
+settlement, accreting NAV per share. The deposit fee and both policy bounds are
+fixed and disclosed at creation.
 
 ### Mark price and PriceCap (perpetual)
 

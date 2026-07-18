@@ -643,6 +643,75 @@ public fun place_collateralized_limit_order<Instrument>(
   )
 }
 
+/// Match a positive limit order for an instrument-controlled account that
+/// has no address-owned `MarginAccount` — a vault treasury, an insurance
+/// buffer, or another internal account whose collateral the instrument
+/// already commands through carry. Authority comes from the private witness
+/// scoped to this market; the reservation still comes from the account's
+/// own free collateral in this market, so no new spending power is granted.
+public fun place_instrument_order<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account_id: ID,
+  reservation_amount: UsdcAmount,
+  _witness: &Instrument,
+  side: Side,
+  price: Price,
+  size: Size,
+): FillObligation<Instrument> {
+  market.assert_version();
+  market.assert_trading();
+  let market_id = object::id(market);
+  matching::validate_limit_order(
+    &market.orderbook,
+    margin_account_id,
+    side,
+    price,
+    size,
+  );
+  let reservation_id = collateral::reserve(
+    &mut market.collateral,
+    market_id,
+    margin_account_id,
+    reservation_amount,
+  );
+  matching::place_limit_order(
+    &mut market.orderbook,
+    market_id,
+    margin_account_id,
+    reservation_id,
+    side,
+    price,
+    size,
+  )
+}
+
+/// Remove one resting order owned by an instrument-controlled account,
+/// releasing its unconsumed reservation. The witness is the authority; the
+/// order must belong to `margin_account_id`.
+public fun cancel_instrument_order<Instrument>(
+  market: &mut Market<Instrument>,
+  margin_account_id: ID,
+  _witness: &Instrument,
+  side: Side,
+  order_id: OrderId,
+): CancelObligation<Instrument> {
+  market.assert_version();
+  let market_id = object::id(market);
+  let obligation = matching::cancel_order(
+    &mut market.orderbook,
+    market_id,
+    margin_account_id,
+    side,
+    order_id,
+  );
+  collateral::release(
+    &mut market.collateral,
+    market_id,
+    obligation.canceled_reservation_id(),
+  );
+  obligation
+}
+
 /// Remove the sender's own resting order and return a non-droppable
 /// cancellation carrying the opaque reservation and exact unfilled size.
 public fun cancel_order<Instrument>(

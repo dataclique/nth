@@ -2579,6 +2579,114 @@ fun terminal_cleanup_respects_explicit_bound() {
 }
 
 #[test]
+fun instrument_controlled_account_places_fills_and_cancels_orders() {
+  let mut test = test_scenario::begin(ALICE);
+  let witness = witness();
+  let mut market = instrument_market::new(&witness, test.ctx());
+  let mut alice = margin::new_with_deposit(
+    coin::mint_for_testing<USDC>(100, test.ctx()),
+    test.ctx(),
+  );
+  let alice_id = object::id(&alice);
+  let treasury_id = object::id(&market);
+  instrument_market::deposit_collateral(
+    &mut market,
+    &mut alice,
+    usdc_amount::usdc(100),
+    &witness,
+    test.ctx(),
+  );
+  instrument_market::apply_carry(
+    &mut market,
+    alice_id,
+    treasury_id,
+    usdc_amount::usdc(50),
+    0,
+    false,
+    false,
+    &witness,
+  );
+  assert_eq!(
+    instrument_market::free_collateral(&market, treasury_id).value(),
+    50,
+  );
+
+  let resting = instrument_market::place_instrument_order(
+    &mut market,
+    treasury_id,
+    usdc_amount::usdc(10),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+  );
+  instrument_market::complete(&market, resting, &witness);
+  assert_eq!(
+    instrument_market::free_collateral(&market, treasury_id).value(),
+    40,
+  );
+
+  let canceled = instrument_market::cancel_instrument_order(
+    &mut market,
+    treasury_id,
+    &witness,
+    order::ask(),
+    order::order_id(1),
+  );
+  instrument_market::complete_cancel(&market, canceled, &witness);
+  assert_eq!(
+    instrument_market::free_collateral(&market, treasury_id).value(),
+    50,
+  );
+
+  let resting = instrument_market::place_instrument_order(
+    &mut market,
+    treasury_id,
+    usdc_amount::usdc(10),
+    &witness,
+    order::ask(),
+    price::price(100),
+    size::size(10),
+  );
+  instrument_market::complete(&market, resting, &witness);
+  let mut bid = instrument_market::place_limit_order(
+    &mut market,
+    &alice,
+    alice_id,
+    &witness,
+    order::bid(),
+    price::price(100),
+    size::size(10),
+    test.ctx(),
+  );
+  instrument_market::settle_next_with_collateral(
+    &mut market,
+    &mut bid,
+    usdc_amount::usdc(10),
+    usdc_amount::usdc(0),
+    &witness,
+  );
+  instrument_market::complete(&market, bid, &witness);
+
+  assert_eq!(
+    instrument_market::position_state(&market, treasury_id),
+    position::short(),
+  );
+  assert_eq!(
+    instrument_market::position_collateral(&market, treasury_id).value(),
+    10,
+  );
+  assert_eq!(
+    instrument_market::position_state(&market, alice_id),
+    position::long(),
+  );
+
+  margin::keep(alice, test.ctx());
+  transfer::public_share_object(market);
+  test.end();
+}
+
+#[test]
 fun best_prices_track_the_front_of_each_side() {
   let mut test = test_scenario::begin(ALICE);
   let witness = witness();
