@@ -16,6 +16,7 @@ public use fun size_sub as Size.sub;
 public use fun size_add as Size.add;
 public use fun size_min as Size.min;
 public use fun size_eq as Size.eq;
+public use fun size_lt as Size.lt;
 
 // === Public Functions ===
 
@@ -43,4 +44,8 @@ public fun size_min(size: Size, other: Size): Size {
 
 public fun size_eq(size: Size, other: Size): bool {
   size.value == other.value
+}
+
+public fun size_lt(size: Size, other: Size): bool {
+  size.value < other.value
 }

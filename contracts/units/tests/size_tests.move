@@ -25,6 +25,15 @@ fun min_is_symmetric() {
 }
 
 #[test]
+fun lt_is_strict() {
+  let small = size::size(3);
+  let big = size::size(7);
+  assert!(small.lt(big), 0);
+  assert!(!big.lt(small), 1);
+  assert!(!small.lt(small), 2);
+}
+
+#[test]
 fun zero_boundaries() {
   assert!(size::size_zero().is_zero(), 0);
   assert!(!size::size(1).is_zero(), 1);

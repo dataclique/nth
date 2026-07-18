@@ -6,7 +6,7 @@ commit style) live in the root [AGENTS.md](../AGENTS.md).
 
 ## Package Layout
 
-Two Move packages under `contracts/`, both edition `2024`. The Sui framework
+Three Move packages under `contracts/`, all edition `2024`. The Sui framework
 dependency is pinned to `testnet-v1.75.1` — the same release as the `sui` CLI in
 `flake.nix` and the backend `sui-sdk`. Bump all three together, never one alone.
 
@@ -28,16 +28,26 @@ Typed fixed-point quantities — one module per type. See `units/README.md` and
 
 ### `nth` (`nth::*`)
 
-| File                     | Module           | Contents                                                   |
-| ------------------------ | ---------------- | ---------------------------------------------------------- |
-| `sources/risk.move`      | `nth::risk`      | Margin/liquidation/funding formulas; ALL u128 scaling math |
-| `sources/margin.move`    | `nth::margin`    | `MarginAccount`: USDC deposits/withdrawals, owner checks   |
-| `sources/order.move`     | `nth::order`     | `Side` enum + `match_side!`, `OrderId`, `Order` struct     |
-| `sources/orderbook.move` | `nth::orderbook` | CLOB: matching, cancellation, liquidation sweep, funding   |
-| `sources/pool.move`      | `nth::pool`      | `Pool`: vault + orderbook + oracle, entry points, cadence  |
-| `sources/vault.move`     | `nth::vault`     | Pooled USDC collateral                                     |
-| `sources/oracle.move`    | `nth::oracle`    | Price oracle object                                        |
-| `tests/`                 | `nth::*_tests`   | One `#[test_only]` module per source module                |
+| File                             | Module                   | Contents                                                   |
+| -------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| `sources/risk.move`              | `nth::risk`              | Margin/liquidation/funding formulas; ALL u128 scaling math |
+| `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks   |
+| `sources/order.move`             | `nth::order`             | `Side` enum + `match_side!`, `OrderId`, `Order` struct     |
+| `sources/position.move`          | `nth::position`          | Account-bound generic net exposure                         |
+| `sources/matching.move`          | `nth::matching`          | Generic CLOB + fill and cancellation obligations           |
+| `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions + cursor-checked settlement         |
+| `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, funding   |
+| `sources/pool.move`              | `nth::pool`              | `Pool`: vault + orderbook + oracle, entry points, cadence  |
+| `sources/vault.move`             | `nth::vault`             | Pooled USDC collateral                                     |
+| `sources/oracle.move`            | `nth::oracle`            | Price oracle object                                        |
+| `tests/`                         | `nth::*_tests`           | One `#[test_only]` module per source module                |
+
+### `conformance/` (`instrument_conformance::*`)
+
+External linear and expiring fixture instruments. This package depends on `nth`,
+while `nth` imports neither fixture; its tests prove private witnesses,
+wrapper-owned markets, typed obligations, cancellation, and isolated positions
+across the public package boundary.
 
 ## Module Organization
 
@@ -63,6 +73,7 @@ Build and test inside the dev shell:
 ```sh
 cd contracts/units && sui move test   # units package
 cd contracts && sui move test          # nth package — must be green ALWAYS
+cd contracts/conformance && sui move test # external instrument fixtures
 sui move test <filter>                 # run matching tests during iteration
 ```
 

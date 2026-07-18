@@ -31,8 +31,8 @@ deps = { MoveStdlib = "MoveStdlib_1" }
 [pinned.testnet.nth]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "AEF072E6D6F42F73CE9166D96603E98166480FF2A707F378A4412C1B17241855"
-deps = { Sui = "Sui", usdc = "usdc" }
+manifest_digest = "4F18E54890B62179FE2A52000842E2DE08AC11A439AAFCEBEE7E07A465E259AD"
+deps = { Sui = "Sui", units = "units", usdc = "usdc" }
 
 [pinned.testnet.stablecoin]
 source = { git = "https://github.com/circlefin/stablecoin-sui.git", subdir = "packages/stablecoin", rev = "23fff2ed82a7fdc26e408a56553b1e1d0ba7b06f" }
@@ -45,6 +45,12 @@ source = { git = "https://github.com/circlefin/stablecoin-sui.git", subdir = "pa
 use_environment = "testnet"
 manifest_digest = "1AD09726AC05F000A00A1E0CB700C2036E67E05ACD42D402DD6B54FF2EFBB1E9"
 deps = { Sui = "Sui_1" }
+
+[pinned.testnet.units]
+source = { local = "units" }
+use_environment = "testnet"
+manifest_digest = "78328352EE164149384786CFF935CB7838A36CE8D30B36A186ED95E9CD9DD192"
+deps = { Sui = "Sui" }
 
 [pinned.testnet.usdc]
 source = { git = "https://github.com/circlefin/stablecoin-sui.git", subdir = "packages/usdc", rev = "23fff2ed82a7fdc26e408a56553b1e1d0ba7b06f" }

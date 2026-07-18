@@ -2,25 +2,55 @@
 
 ## Overview
 
-Nth Market is a decentralized trading platform that enables leveraged trading of
-various tokens. Each tradable token has its own setup consisting of several key
-components that work together to provide a secure and efficient trading
-environment.
+Nth Market is a permissionless orderbook protocol for composable financial
+instruments. The generic kernel matches orders and owns account-bound net
+positions; external instrument packages supply collateral, valuation, carry,
+settlement, and liquidation semantics. The older `Pool` path below remains the
+perpetual prototype while those economics migrate onto the standard.
 
 ## Module Map
 
-| File                     | Module           | Responsibility                                                      |
-| ------------------------ | ---------------- | ------------------------------------------------------------------- |
-| `units/sources/*.move`   | `units::*`       | Typed fixed-point quantities and `float_scaling()` ($10^6$)         |
-| `sources/risk.move`      | `nth::risk`      | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
-| `sources/margin.move`    | `nth::margin`    | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
-| `sources/order.move`     | `nth::order`     | `Order` struct, `Side` enum, `OrderId`                              |
-| `sources/orderbook.move` | `nth::orderbook` | CLOB: matching, cancellation, liquidation sweep, events             |
-| `sources/pool.move`      | `nth::pool`      | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
-| `sources/vault.move`     | `nth::vault`     | Pooled USDC collateral                                              |
-| `sources/oracle.move`    | `nth::oracle`    | Price feed object for a pool                                        |
+| File                             | Module                   | Responsibility                                                      |
+| -------------------------------- | ------------------------ | ------------------------------------------------------------------- |
+| `units/sources/*.move`           | `units::*`               | Typed fixed-point quantities and `float_scaling()` ($10^6$)         |
+| `sources/risk.move`              | `nth::risk`              | Margin, liquidation, and funding formulas, all arithmetic in `u128` |
+| `sources/margin.move`            | `nth::margin`            | `MarginAccount`: USDC deposits/withdrawals, owner checks            |
+| `sources/order.move`             | `nth::order`             | `Order` struct, `Side` enum, `OrderId`                              |
+| `sources/position.move`          | `nth::position`          | Generic flat/long/short net exposure                                |
+| `sources/matching.move`          | `nth::matching`          | Generic CLOB and non-droppable fill/cancel obligations              |
+| `sources/instrument_market.move` | `nth::instrument_market` | Market-owned positions and settlement cursor checks                 |
+| `sources/orderbook.move`         | `nth::orderbook`         | CLOB: matching, cancellation, liquidation sweep, events             |
+| `sources/pool.move`              | `nth::pool`              | `Pool` + `PriceCap`: entry points tying vault, orderbook, oracle    |
+| `sources/vault.move`             | `nth::vault`             | Pooled USDC collateral                                              |
+| `sources/oracle.move`            | `nth::oracle`            | Price feed object for a pool                                        |
 
 ## Core Components
+
+### Composable Instrument Kernel
+
+An external instrument package defines a privately constructible type witness
+and wraps `instrument_market::Market<Instrument>` inside its own shared market
+object. The wrapper can add a collateral silo, oracle state, expiry, funding
+index, NAV, manager policy, or other instrument-specific state without the
+kernel importing that package.
+
+Each generic market owns one bounded price-time-priority orderbook and a keyed
+table containing at most one net position per margin-account ID. Positions are
+logically account-bound but market-owned: a taker transaction cannot include the
+address-owned account of every resting maker. `Position<Instrument>` has no
+`key`, no extraction API, and no independent transfer path.
+
+Matching returns a `FillObligation<Instrument>` with no abilities. The wrapper
+can inspect each fill, but only `instrument_market::settle_next` advances the
+private cursor, after applying both maker and taker net-position transitions.
+`complete` aborts unless every fill advanced. Fill batches are capped at 32 and
+each book side at 1,024 resting orders; these are explicit protocol bounds, not
+assumptions about transaction gas.
+
+`contracts/conformance` contains independent linear and expiring wrappers that
+compile against the public kernel boundary. The full design, lifecycle scope,
+and remaining collateral conformance work are specified in
+[ADR 02](../adrs/02-composable-instrument-standard.md).
 
 ### Pool
 

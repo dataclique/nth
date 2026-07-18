@@ -13,18 +13,52 @@ on:
     paths:
       - "contracts/**"
       - ".github/workflows/contracts.yaml"
+      - "flake.nix"
+      - "flake.lock"
+
+permissions:
+  contents: read
+
+# Nix is installed via nix-quick-install-action; the shared `data-cartel-public`
+# Cachix (cachix-action) and the per-runner nix store (cache-nix-action) are
+# warmed before any `nix` build, and built paths are pushed back to Cachix. This
+# replaces the DeterminateSystems installer + FlakeHub cache, whose hosted cache
+# requires FlakeHub authentication. cachix-action is continue-on-error so a fork
+# PR (no CACHIX_AUTH_TOKEN) skips the data-cartel-public cache and still builds
+# against cache.nixos.org without failing the job.
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NIXPKGS_ALLOW_UNFREE: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/flakehub-cache-action@main
-      - uses: DeterminateSystems/flake-checker-action@main
+      - uses: nixbuild/nix-quick-install-action@2c9db80fb984ceb1bcaa77cdda3fdf8cfba92035 # v34
+        with:
+          nix_version: "2.31.2"
+          nix_conf: |
+            accept-flake-config = true
+            fallback = true
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+            keep-env-derivations = true
+            keep-outputs = true
+
+      - uses: cachix/cachix-action@ad2ddac53f961de1989924296a1f236fcfbaa4fc # v15
+        continue-on-error: true
+        with:
+          name: data-cartel-public
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-${{ runner.os }}-contracts-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-contracts-
+          gc-max-store-size-linux: 5G
 
       - name: Nix Flake check
         run: nix flake check --impure --accept-flake-config --show-trace
@@ -33,4 +67,4 @@ jobs:
         run: |
           nix develop \
             --impure --accept-flake-config --show-trace \
-            --command /bin/bash -c 'cd contracts && sui move test'
+            --command /bin/bash -c 'cd contracts/units && sui move test && cd ../conformance && sui move test && cd .. && sui move test'
