@@ -7,8 +7,8 @@ govern — read the relevant one before touching that directory.
 ## What This Repo Is
 
 Strike is a prototype perpetuals DEX on Sui: a central-limit orderbook with
-leveraged, margin-backed orders, USDC collateral, and ByBit-style liquidation
-math (see [docs/margin.md](docs/margin.md) and
+leveraged, margin-backed orders, USDC collateral, and liquidation math (see
+[docs/margin.md](docs/margin.md) and
 [docs/liquidation.md](docs/liquidation.md)).
 
 | Directory    | Contents                                                                 | Standards                                  |

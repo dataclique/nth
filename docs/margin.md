@@ -6,11 +6,9 @@ when a trader opens a position, initial margin moves from that account into the
 pool `Vault` and stays there until the position is reduced (cancel), liquidated,
 or closed.
 
-Formulas follow
-[ByBit's USDT-contract liquidation math](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract);
-liquidation thresholds are documented in [liquidation.md](liquidation.md).
-Fixed-point encoding ($10^6$ scale, shared with USDC base units) is in
-[float_scaling.md](float_scaling.md).
+Formulas follow liquidation thresholds are documented in
+[liquidation.md](liquidation.md). Fixed-point encoding ($10^6$ scale, shared
+with USDC base units) is in [float_scaling.md](float_scaling.md).
 
 ## Notation
 

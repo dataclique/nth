@@ -86,6 +86,13 @@
             denofmt.files = "\\.md$";
             taplo.enable = true;
           };
+          migrateWorktreeHooksPath = ''
+            if hooks_path="$(${pkgs.git}/bin/git config --local --get core.hooksPath)"; then
+              if [ "$hooks_path" = ".git/hooks" ] && [ ! -d .git ]; then
+                ${pkgs.git}/bin/git config --local --unset-all core.hooksPath
+              fi
+            fi
+          '';
 
         in
         {
@@ -109,13 +116,20 @@
                 languages = {
                   nix.enable = true;
                   javascript.enable = true;
-                  javascript.pnpm.enable = true;
+                  javascript.pnpm = {
+                    enable = true;
+                    package = pkgs.pnpm.override { nodejs-slim = pkgs.nodejs-slim; };
+                  };
                   typescript.enable = true;
                   rust.enable = true;
                 };
 
                 inherit env;
                 git-hooks = { inherit hooks; };
+                tasks."strike:git-hooks:worktree" = {
+                  exec = migrateWorktreeHooksPath;
+                  before = [ "devenv:git-hooks:install" ];
+                };
                 difftastic.enable = true;
                 cachix.enable = true;
               }
@@ -123,6 +137,37 @@
           };
 
           checks.git-hooks = git-hooks.lib.${system}.run { inherit hooks src; };
+          checks.git-hooks-worktree =
+            let
+              gitHooks = self.devShells.${system}.default.config.git-hooks;
+            in
+            pkgs.runCommand "git-hooks-worktree"
+              {
+                nativeBuildInputs = [
+                  gitHooks.gitPackage
+                  gitHooks.package
+                ];
+              }
+              ''
+                export HOME="$TMPDIR/home"
+                mkdir "$HOME" repository
+                cd repository
+                git init -q
+                git config user.email "test@example.com"
+                git config user.name "Test User"
+                git config core.hooksPath .git/hooks
+                touch tracked
+                git add tracked
+                git commit -qm initial
+                git branch linked
+                git worktree add ../linked linked
+                cd ../linked
+                ln -s ${gitHooks.configFile} .pre-commit-config.yaml
+                ${migrateWorktreeHooksPath}
+                ${pkgs.lib.getExe gitHooks.package} install -c .pre-commit-config.yaml -t pre-commit
+                test -x "$(git rev-parse --git-common-dir)/hooks/pre-commit"
+                touch "$out"
+              '';
           packages.devenv-up = self.devShells.${system}.default.config.procfileScript;
         }
       );

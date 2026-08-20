@@ -50,7 +50,7 @@ public fun max_leverage(maintenance_margin_rate: u64): Leverage {
 }
 
 /// Whether a position crosses its liquidation threshold at
-/// `current_price`, using the ByBit-style liquidation price documented in
+/// `current_price`, using the liquidation price documented in
 /// docs/liquidation.md (thresholds) and docs/margin.md (margin definitions).
 /// Runs entirely in u128: a margin strictly below maintenance liquidates at
 /// any price (the naive `initial - maintenance` would underflow-abort for any

@@ -4,8 +4,6 @@ Liquidation occurs when the oracle price crosses a position's liquidation
 threshold: locked margin falls to the maintenance margin level (or below). The
 position is then removed from the book; its collateral stays in the pool vault.
 
-Formulas follow
-[ByBit's liquidation-price article (USDT contracts)](https://www.bybit.com/en/help-center/article/Liquidation-Price-USDT-Contract).
 Initial and maintenance margin definitions, collateral flow, and the leverage
 cap are in [margin.md](margin.md).
 
