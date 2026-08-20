@@ -2,7 +2,8 @@
 ///
 /// Every formula that combines fixed-point quantities lives here, computed
 /// in u128: double-scaled intermediate products (`price * size`) overflow
-/// u64 for realistic inputs. Formula reference: docs/liquidation.md.
+/// u64 for realistic inputs. Formula reference: docs/margin.md (margin
+/// mechanism) and docs/liquidation.md (liquidation thresholds).
 module strike::risk;
 
 use strike::constants;
@@ -49,14 +50,14 @@ public fun max_leverage(maintenance_margin_rate: u64): Leverage {
 }
 
 /// Whether a position crosses its liquidation threshold at
-/// `current_price`, using the ByBit-style liquidation price documented in
-/// docs/liquidation.md. Runs entirely in u128: a margin strictly below
-/// maintenance liquidates at any price (the naive `initial - maintenance`
-/// would underflow-abort for any leverage above `max_leverage`), and a
-/// long whose buffer exceeds its entry price can never be liquidated by a
-/// price drop. Aborts on `size` of zero (division); callers guarantee
-/// positive size — `pool::place_leveraged_order` rejects zero-size orders
-/// at the boundary.
+/// `current_price`, using the liquidation price documented in
+/// docs/liquidation.md (thresholds) and docs/margin.md (margin definitions).
+/// Runs entirely in u128: a margin strictly below maintenance liquidates at
+/// any price (the naive `initial - maintenance` would underflow-abort for any
+/// leverage above `max_leverage`), and a long whose buffer exceeds its entry
+/// price can never be liquidated by a price drop. Aborts on `size` of zero
+/// (division); callers guarantee positive size — `pool::place_leveraged_order`
+/// rejects zero-size orders at the boundary.
 public fun is_liquidated(
   side: Side,
   entry_price: Price,

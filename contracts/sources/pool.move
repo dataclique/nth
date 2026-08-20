@@ -7,7 +7,6 @@ use strike::risk;
 use strike::strike::{Self, MarginAccount};
 use strike::units::{Price, Size, Leverage};
 use strike::vault::{Self, Vault};
-use sui::clock::Clock;
 use sui::event;
 
 // === Constants ===
@@ -15,13 +14,6 @@ use sui::event;
 /// Mutators assert this against `Pool.version` so a future package upgrade
 /// can migrate shared pools explicitly instead of operating on stale state.
 const POOL_VERSION: u64 = 1;
-
-/// Maximum age of the oracle price before `check_liquidations` aborts.
-const MAX_ORACLE_STALENESS_MS: u64 = 3_600_000;
-
-public fun max_oracle_staleness_ms(): u64 {
-  MAX_ORACLE_STALENESS_MS
-}
 
 // === Errors ===
 
@@ -34,7 +26,6 @@ const EWrongPool: u64 = 6;
 const EInvalidMaintenanceMarginRate: u64 = 7;
 const EZeroMargin: u64 = 8;
 const EWrongVersion: u64 = 9;
-const EStaleOracle: u64 = 10;
 
 // === Structs ===
 
@@ -103,7 +94,6 @@ public struct PositionClosed has copy, drop {
 public fun new(
   maintenance_margin_rate: u64,
   initial_price: Price,
-  clock: &Clock,
   ctx: &mut TxContext,
 ): PriceCap {
   assert!(
@@ -116,7 +106,7 @@ public fun new(
   let vault = vault::empty(ctx);
   let orderbook = orderbook::empty(ctx);
   let mut oracle = oracle::new(ctx);
-  oracle::update_price(&mut oracle, initial_price, clock);
+  oracle::update_price(&mut oracle, initial_price, ctx);
 
   let pool_id = object::uid_to_inner(&id);
   event::emit(PoolCreated { pool_id });
@@ -142,12 +132,12 @@ public fun update_price(
   pool: &mut Pool,
   cap: &PriceCap,
   new_price: Price,
-  clock: &Clock,
+  ctx: &TxContext,
 ) {
   assert_version(pool);
   assert!(cap.pool_id == object::id(pool), EWrongPool);
   assert!(!new_price.is_zero(), EInvalidPrice);
-  oracle::update_price(&mut pool.oracle, new_price, clock);
+  oracle::update_price(&mut pool.oracle, new_price, ctx);
 }
 
 #[test_only]
@@ -286,20 +276,12 @@ public fun close_position(
 /// liquidation threshold at the current oracle price. Anyone may call
 /// this; each removal emits `PositionLiquidated`.
 ///
-/// Aborts with `EStaleOracle` when the oracle price is older than
-/// `max_oracle_staleness_ms()`. Losing the pool's `PriceCap` permanently
-/// disables `update_price` — there is no re-issuance path — so once the
-/// price exceeds the staleness window every sweep aborts and liquidations
-/// halt (see `docs/project_architecture.md`).
-public fun check_liquidations(pool: &mut Pool, clock: &Clock) {
+/// The sweep reads whatever price is in the oracle — there is no
+/// staleness guard yet (see `oracle::last_update_time`). Losing the
+/// pool's `PriceCap` permanently disables `update_price`; document
+/// recovery procedures before mainnet.
+public fun check_liquidations(pool: &mut Pool) {
   assert_version(pool);
-  let now = clock.timestamp_ms();
-  let updated = oracle::last_update_time(&pool.oracle);
-  assert!(
-    updated <= now && now - updated <= MAX_ORACLE_STALENESS_MS,
-    EStaleOracle,
-  );
-
   let current_price = oracle::price(&pool.oracle);
   let pool_id = object::id(pool);
 
@@ -327,6 +309,6 @@ fun assert_version(pool: &Pool) {
 
 #[test_only]
 /// Imitate an oracle update without threading the PriceCap through tests.
-public fun set_token_price(pool: &mut Pool, new_price: Price, clock: &Clock) {
-  oracle::update_price(&mut pool.oracle, new_price, clock);
+public fun set_token_price(pool: &mut Pool, new_price: Price, ctx: &TxContext) {
+  oracle::update_price(&mut pool.oracle, new_price, ctx);
 }

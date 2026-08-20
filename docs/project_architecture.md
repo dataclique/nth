@@ -43,8 +43,9 @@ account ownership, non-zero price and size, the leverage cap, and a non-zero
 margin (dust notionals whose margin truncates to zero abort with `EZeroMargin`).
 Leverage above `100 / maintenance_margin_rate` (or zero leverage) aborts with
 `EInvalidLeverage` — above that bound the initial margin is below the
-maintenance margin, so the position would be born liquidatable. See
-[liquidation.md](liquidation.md).
+maintenance margin, so the position would be born liquidatable. Margin formulas,
+collateral flow, and the leverage cap are in [margin.md](margin.md); liquidation
+thresholds are in [liquidation.md](liquidation.md).
 
 Matching enforces self-trade prevention: an incoming order that would cross a
 resting order from the same margin account aborts with `ESelfMatch` rather than
@@ -60,13 +61,12 @@ path to the price.
 
 This is a deliberate trust trade-off. Because the cap is the sole price path,
 **losing it freezes the pool's price at its last value**: `update_price` can
-never be called again, and there is no re-issuance path (adding one would
-reintroduce the admin authority the capability removes). Once the frozen price
-is older than `pool::max_oracle_staleness_ms()` (currently one hour), every
-`check_liquidations` call aborts with `EStaleOracle` and liquidations halt
-entirely — the staleness guard bounds bad liquidations from a frozen price but
-cannot substitute for cap custody. Custody is therefore a liveness-critical
-responsibility — hold it in a durable multisig, not a hot key.
+never be called again, `check_liquidations` sweeps forever against a stale
+price, and there is no re-issuance path (adding one would reintroduce the admin
+authority the capability removes). Cap custody is therefore a liveness-critical
+responsibility — hold it in a durable multisig, not a hot key. A max-staleness
+guard on the oracle read is tracked as a follow-up; it bounds bad liquidations
+but cannot substitute for cap custody.
 
 ### OrderBook
 
@@ -118,9 +118,10 @@ sender. This pins the account to its recorded `owner`, which `deposit` and
 ### Units and Risk
 
 Prices, sizes, leverage, and USDC amounts are typed fixed-point quantities
-(`strike::units`) scaled by 10^6, matching USDC's 6 decimals. All cross-quantity
-arithmetic lives in `strike::risk` and runs in `u128`. See
-[float_scaling.md](float_scaling.md).
+(`strike::units`) scaled by $10^6$, matching USDC's 6 decimals. All
+cross-quantity arithmetic lives in `strike::risk` and runs in `u128`. See
+[float_scaling.md](float_scaling.md) for encoding and [margin.md](margin.md) for
+the financial formulas.
 
 ## User Flow
 
@@ -179,11 +180,6 @@ arithmetic lives in `strike::risk` and runs in `u128`. See
 
 - Oracle price updates require the pool's `PriceCap` — no hardcoded addresses or
   sender allowlists
-- `check_liquidations` aborts when the oracle price is older than
-  `pool::max_oracle_staleness_ms()` (currently one hour)
-- If the `PriceCap` is lost, `update_price` is permanently disabled for that
-  pool — there is no re-issuance path — and liquidation sweeps abort once the
-  frozen price exceeds the staleness window
 
 ### Fund Protection
 

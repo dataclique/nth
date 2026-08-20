@@ -39,14 +39,11 @@ fun setup(test: &mut Scenario) {
   next_tx(test, ALICE);
   {
     // pool::new shares the Pool and returns its PriceCap.
-    let clock = sui::clock::create_for_testing(test.ctx());
     let price_cap = pool::new(
       constants::default_maintenance_margin_rate(),
       px(100),
-      &clock,
       test.ctx(),
     );
-    clock.destroy_for_testing();
     let alice_usdc = mint_for_testing<USDC>(usdc_of(1000), test.ctx());
     let alice_margin = strike::new_with_deposit(alice_usdc, test.ctx());
 
@@ -265,10 +262,8 @@ fun test_vault_conserves_value_across_mixed_flow() {
     );
 
     // Drop to 80: liquidates the 4x bid at 95 (95 - 0 >= 80).
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::set_token_price(&mut pool, px(80), &clock);
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::set_token_price(&mut pool, px(80), test.ctx());
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);
@@ -314,10 +309,8 @@ fun test_liquidated_order_margin_stays_in_vault() {
     let account_after_place = margin_account.balance();
     assert!(account_after_place == usdc_of(1000) - margin, 1);
 
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::set_token_price(&mut pool, px(80), &clock);
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::set_token_price(&mut pool, px(80), test.ctx());
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 2);
@@ -470,9 +463,7 @@ fun test_check_liquidations_on_empty_book_is_noop() {
 
     // A sweep over a book with no resting orders must complete without
     // aborting and leave both sides empty.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -531,18 +522,16 @@ fun test_check_liquidations_removes_multiple_bids_and_asks_in_one_sweep() {
     // Round 1 — crash to 50: BOTH longs are past their liquidation
     // prices (100 and 95), so one sweep must remove more than one order
     // (the loop-until-none behavior). The short at 110 survives a crash.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::set_token_price(&mut pool, px(50), &clock);
-    pool::check_liquidations(&mut pool, &clock);
+    pool::set_token_price(&mut pool, px(50), test.ctx());
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
     assert!(orderbook::asks_length(orderbook) == 1, 2);
 
     // Round 2 — spike to 120: the short at 110 liquidates.
-    pool::set_token_price(&mut pool, px(120), &clock);
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::set_token_price(&mut pool, px(120), test.ctx());
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 3);
@@ -586,9 +575,7 @@ fun test_pool_new_seeds_oracle_with_initial_price() {
     // No set_token_price: the sweep runs against whatever `pool::new`
     // seeded the oracle with. Liquidation here proves the initial price
     // actually reached the oracle (100 - 0 >= 100).
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -610,9 +597,7 @@ fun test_zero_maintenance_rate_aborts() {
     // A 0% maintenance rate would divide by zero in risk::max_leverage.
     // The transfer below is unreachable but consumes the PriceCap
     // syntactically, mirroring the other abort-path tests.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    let cap = pool::new(0, px(100), &clock, test.ctx());
-    clock.destroy_for_testing();
+    let cap = pool::new(0, px(100), test.ctx());
     transfer::public_transfer(cap, ALICE);
   };
   end(test);
@@ -625,9 +610,7 @@ fun test_maintenance_rate_above_100_aborts() {
   next_tx(&mut test, ALICE);
   {
     // Above 100% no leverage satisfies the margin requirement.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    let cap = pool::new(101, px(100), &clock, test.ctx());
-    clock.destroy_for_testing();
+    let cap = pool::new(101, px(100), test.ctx());
     transfer::public_transfer(cap, ALICE);
   };
   end(test);
@@ -641,9 +624,7 @@ fun test_zero_price_pool_aborts() {
   {
     // A zero initial price would make every liquidation check
     // meaningless before the first oracle update.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    let cap = pool::new(25, units::price(0), &clock, test.ctx());
-    clock.destroy_for_testing();
+    let cap = pool::new(25, units::price(0), test.ctx());
     transfer::public_transfer(cap, ALICE);
   };
   end(test);
@@ -661,11 +642,9 @@ fun test_update_price_to_zero_aborts() {
 
     // Even the PriceCap holder cannot zero the oracle: a zero price
     // would make every liquidation check meaningless.
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::update_price(&mut pool, &cap, units::price(0), &clock);
+    pool::update_price(&mut pool, &cap, units::price(0), test.ctx());
 
     // Unreachable, but the objects must be consumed syntactically.
-    clock.destroy_for_testing();
     return_shared(pool);
     transfer::public_transfer(cap, ALICE);
   };
@@ -693,10 +672,8 @@ fun test_update_price_via_price_cap() {
       test.ctx(),
     );
 
-    let clock = sui::clock::create_for_testing(test.ctx());
-    pool::update_price(&mut pool, &cap, px(80), &clock);
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
+    pool::update_price(&mut pool, &cap, px(80), test.ctx());
+    pool::check_liquidations(&mut pool);
 
     let orderbook = pool::borrow_orderbook(&pool);
     assert!(orderbook::bids_length(orderbook) == 0, 1);
@@ -715,60 +692,18 @@ fun test_update_price_with_foreign_cap_aborts() {
 
   next_tx(&mut test, BOB);
   {
-    let clock = sui::clock::create_for_testing(test.ctx());
     let cap_b = pool::new(
       constants::default_maintenance_margin_rate(),
       px(100),
-      &clock,
       test.ctx(),
     );
 
     let mut pool_a = take_shared<Pool>(&test);
-    pool::update_price(&mut pool_a, &cap_b, px(50), &clock);
+    pool::update_price(&mut pool_a, &cap_b, px(50), test.ctx());
 
-    clock.destroy_for_testing();
     return_shared(pool_a);
     transfer::public_transfer(cap_b, BOB);
   };
-  end(test);
-}
-
-#[test, expected_failure(abort_code = pool::EStaleOracle)]
-fun stale_oracle_aborts_liquidation_sweep() {
-  let mut test = begin(@0xF);
-  setup(&mut test);
-
-  next_tx(&mut test, ALICE);
-  {
-    let mut pool = take_shared<Pool>(&test);
-    let mut margin_account = take_from_address<MarginAccount>(&test, ALICE);
-
-    pool::place_leveraged_order(
-      &mut pool,
-      &mut margin_account,
-      order::bid(),
-      px(95),
-      sz(5),
-      lev(4),
-      test.ctx(),
-    );
-
-    return_shared(pool);
-    margin_account.keep(test.ctx());
-  };
-
-  next_tx(&mut test, ALICE);
-  {
-    let mut pool = take_shared<Pool>(&test);
-    // The pool was seeded at clock time 0; a clock one tick past the
-    // staleness window makes that price too old to sweep against.
-    let mut clock = sui::clock::create_for_testing(test.ctx());
-    clock.set_for_testing(pool::max_oracle_staleness_ms() + 1);
-    pool::check_liquidations(&mut pool, &clock);
-    clock.destroy_for_testing();
-    return_shared(pool);
-  };
-
   end(test);
 }
 

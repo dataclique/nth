@@ -62,7 +62,6 @@ public struct OrderMatched has copy, drop {
 public struct PositionLiquidated has copy, drop {
   pool_id: ID,
   margin_account_id: ID,
-  order_id: u64,
   entry_price: u64,
   oracle_price: u64,
   is_bid: bool,
@@ -351,7 +350,7 @@ fun remove_liquidated(
 
     let liquidated = risk::is_liquidated(
       order.side(),
-      order.entry_price(),
+      order.price(),
       order.size(),
       order.margin(),
       maintenance_margin_rate,
@@ -360,7 +359,6 @@ fun remove_liquidated(
 
     if (liquidated) {
       let margin_account_id = order.margin_account_id();
-      let order_id = order.order_id().value();
       let entry_price = order.entry_price();
       let side = order.side();
       orders.remove(order_index);
@@ -368,7 +366,6 @@ fun remove_liquidated(
       event::emit(PositionLiquidated {
         pool_id,
         margin_account_id,
-        order_id,
         entry_price: entry_price.value(),
         oracle_price: current_price.value(),
         is_bid: side.is_bid(),
