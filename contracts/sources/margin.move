@@ -28,7 +28,7 @@ public struct MarginAccount has key {
 public enum MarginAccountEventKind has copy, drop {
   Creation,
   Deposit { amount: u64 },
-  Withdrawal { withdraw_amount: u64 },
+  Withdrawal { amount: u64 },
 }
 
 public struct MarginAccountEvent has copy, drop {
@@ -135,7 +135,7 @@ public fun withdraw(
 
   event::emit(MarginAccountEvent {
     margin_account_id: object::uid_to_inner(&margin_account.id),
-    kind: MarginAccountEventKind::Withdrawal { withdraw_amount },
+    kind: MarginAccountEventKind::Withdrawal { amount: withdraw_amount },
   });
 
   withdraw_coin
